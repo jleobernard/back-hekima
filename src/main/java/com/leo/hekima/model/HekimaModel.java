@@ -17,6 +17,12 @@ public class HekimaModel {
     @Relationship(type = "SOURCE", direction = Relationship.Direction.OUTGOING)
     private HekimaSourceModel source;
 
+    public HekimaModel() {
+    }
+
+    public HekimaModel(String uri) {
+        this.uri = uri;
+    }
     public HekimaModel(String uri, String valeur, long createdAt, List<HekimaTagModel> tags, HekimaSourceModel source) {
         this.uri = uri;
         this.valeur = valeur;
@@ -27,10 +33,6 @@ public class HekimaModel {
 
     public String getUri() {
         return uri;
-    }
-
-    public void setUri(String uri) {
-        this.uri = uri;
     }
 
     public String getValeur() {
@@ -63,5 +65,9 @@ public class HekimaModel {
 
     public void setSource(HekimaSourceModel source) {
         this.source = source;
+    }
+
+    public void setUri(String uri) {
+        this.uri = uri;
     }
 }

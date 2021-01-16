@@ -1,8 +1,8 @@
 package com.leo.hekima;
 
-import com.leo.hekima.handler.HekimaHandler;
-import com.leo.hekima.handler.SourceHandler;
-import com.leo.hekima.handler.TagHandler;
+import com.leo.hekima.handler.HekimaService;
+import com.leo.hekima.handler.SourceService;
+import com.leo.hekima.handler.TagService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
@@ -16,18 +16,42 @@ import static org.springframework.web.reactive.function.server.RequestPredicates
 public class HekimaRouter {
 
     @Bean
-    public RouterFunction<ServerResponse> route(HekimaHandler actionHandler,
-                                                SourceHandler sourceHandler,
-                                                TagHandler tagHandler) {
+    public RouterFunction<ServerResponse> route(HekimaService hekimaService,
+                                                SourceService sourceService,
+                                                TagService tagService) {
         return RouterFunctions
-                .route(GET("/hekimas")
+                .route(GET("/api/hekimas")
                                 .and(accept(MediaType.APPLICATION_JSON)),
-                        actionHandler::search)
-                .andRoute(GET("/sources")
+                        hekimaService::search)
+                .andRoute(POST("/api/hekimas")
+                                .and(contentType(MediaType.APPLICATION_JSON))
                                 .and(accept(MediaType.APPLICATION_JSON)),
-                        sourceHandler::search)
-                .andRoute(GET("/tags")
+                        hekimaService::upsert)
+                .andRoute(DELETE("/api/hekimas/{uri}")
                                 .and(accept(MediaType.APPLICATION_JSON)),
-                        tagHandler::search);
+                        hekimaService::delete)
+                .andRoute(GET("/api/hekimas/{uri}")
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        hekimaService::findByUri)
+                .andRoute(GET("/api/sources")
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        sourceService::search)
+                .andRoute(POST("/api/sources")
+                    .and(contentType(MediaType.APPLICATION_JSON))
+                    .and(accept(MediaType.APPLICATION_JSON)),
+                        sourceService::upsert)
+                .andRoute(DELETE("/api/sources/{uri}")
+                        .and(accept(MediaType.APPLICATION_JSON)),
+                        sourceService::delete)
+                .andRoute(GET("/api/tags")
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        tagService::search)
+                .andRoute(POST("/api/tags")
+                    .and(contentType(MediaType.APPLICATION_JSON))
+                    .and(accept(MediaType.APPLICATION_JSON)),
+                    tagService::upsert)
+                .andRoute(DELETE("/api/tags/{uri}")
+                        .and(accept(MediaType.APPLICATION_JSON)),
+                tagService::delete);
     }
 }

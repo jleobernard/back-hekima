@@ -10,6 +10,7 @@ public class HekimaSourceModel {
     private String titre;
     private String titreRecherche;
     private String auteur;
+    private String type;
     private long lastUsed;
 
     public String getUri() {
@@ -50,5 +51,13 @@ public class HekimaSourceModel {
 
     public void setLastUsed(long lastUsed) {
         this.lastUsed = lastUsed;
+    }
+
+    public String getType() {
+        return type;
+    }
+
+    public void setType(String type) {
+        this.type = type;
     }
 }
