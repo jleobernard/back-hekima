@@ -12,18 +12,21 @@ public class HekimaView {
     private final long createdAt;
     private final List<TagView> tags;
     private final SourceView source;
+    private final boolean hasFile;
 
     @JsonCreator
     public HekimaView(@JsonProperty("uri") String uri,
                       @JsonProperty("valeur") String valeur,
                       @JsonProperty("createdAt") long createdAt,
                       @JsonProperty("tags") List<TagView> tags,
-                      @JsonProperty("source") SourceView source) {
+                      @JsonProperty("source") SourceView source,
+                      @JsonProperty("hasFile") boolean hasFile) {
         this.uri = uri;
         this.valeur = valeur;
         this.createdAt = createdAt;
         this.tags = tags;
         this.source = source;
+        this.hasFile = hasFile;
     }
 
     public String getUri() {
@@ -44,5 +47,9 @@ public class HekimaView {
 
     public SourceView getSource() {
         return source;
+    }
+
+    public boolean isHasFile() {
+        return hasFile;
     }
 }

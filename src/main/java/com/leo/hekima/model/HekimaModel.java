@@ -16,6 +16,8 @@ public class HekimaModel {
     private List<HekimaTagModel> tags;
     @Relationship(type = "SOURCE", direction = Relationship.Direction.OUTGOING)
     private HekimaSourceModel source;
+    private String mimeType;
+    private String fileId;
 
     public HekimaModel() {
     }
@@ -23,12 +25,16 @@ public class HekimaModel {
     public HekimaModel(String uri) {
         this.uri = uri;
     }
-    public HekimaModel(String uri, String valeur, long createdAt, List<HekimaTagModel> tags, HekimaSourceModel source) {
+    public HekimaModel(String uri, String valeur, long createdAt, List<HekimaTagModel> tags, HekimaSourceModel source,
+                       String mimeType,
+                       String fileId) {
         this.uri = uri;
         this.valeur = valeur;
         this.createdAt = createdAt;
         this.tags = tags;
         this.source = source;
+        this.mimeType = mimeType;
+        this.fileId = fileId;
     }
 
     public String getUri() {
@@ -69,5 +75,21 @@ public class HekimaModel {
 
     public void setUri(String uri) {
         this.uri = uri;
+    }
+
+    public String getMimeType() {
+        return mimeType;
+    }
+
+    public void setMimeType(String mimeType) {
+        this.mimeType = mimeType;
+    }
+
+    public String getFileId() {
+        return fileId;
+    }
+
+    public void setFileId(String fileId) {
+        this.fileId = fileId;
     }
 }

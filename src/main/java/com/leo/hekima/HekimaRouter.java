@@ -33,6 +33,14 @@ public class HekimaRouter {
                 .andRoute(GET("/api/hekimas/{uri}")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         hekimaService::findByUri)
+                .andRoute(POST("/api/hekimas/{uri}/file")
+                            .and(contentType(MediaType.MULTIPART_FORM_DATA))
+                            .and(accept(MediaType.APPLICATION_JSON)),
+                        hekimaService::uploadFile)
+                .andRoute(GET("/api/hekimas/{uri}/file"),
+                        hekimaService::getFile)
+                .andRoute(DELETE("/api/hekimas/{uri}/file"),
+                        hekimaService::deleteFile)
                 .andRoute(GET("/api/sources")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         sourceService::search)

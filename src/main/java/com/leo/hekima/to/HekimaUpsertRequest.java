@@ -37,4 +37,5 @@ public class HekimaUpsertRequest {
     public List<String> getTags() {
         return tags;
     }
+
 }
