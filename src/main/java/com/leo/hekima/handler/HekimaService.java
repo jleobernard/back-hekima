@@ -127,9 +127,17 @@ public class HekimaService {
     @Transactional
     public Mono<ServerResponse> delete(ServerRequest serverRequest) {
         final String uri = serverRequest.pathVariable("uri");
-        return hekimaRepository.deleteById(uri)
-                .flatMap(value -> noContent().build())
-                .onErrorStop().flatMap(err -> status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+        return hekimaRepository.findById(uri)
+            .doOnNext(this::deleteFile)
+            .flatMap(hekimaRepository::delete)
+            .flatMap(value -> {
+                logger.info("Note {} a bien été supprimée", uri);
+                return noContent().build();
+            })
+            .onErrorResume(e -> {
+                logger.error("Erreur lors de la suppression", e);
+                return status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            });
     }
 
 
@@ -150,21 +158,7 @@ public class HekimaService {
             .flatMap(tuple -> {
                 final HekimaModel hekima = tuple.getT1();
                 final MultiValueMap<String, Part> d = tuple.getT2();
-                if(hasText(hekima.getFileId())) {
-                    logger.info("Renaming old file {} so it appears deleted", hekima.getFileId());
-                    final String fileId = hekima.getFileId();
-                    hekima.setFileId(null);
-                    hekima.setMimeType(null);
-                    final File oldFile = getDataFile(fileId);
-                    if(oldFile.exists()) {
-                        final boolean renameSuccess = oldFile.renameTo(getDataFile(fileId + "." + System.currentTimeMillis() + ".old"));
-                        if (!renameSuccess) {
-                            throw new UnrecoverableServiceException("Could not rename file " + fileId);
-                        }
-                    } else {
-                        logger.warn("File {} does not exist anymore", fileId);
-                    }
-                }
+                deleteFile(hekima);
                 Part file = d.get("file").get(0);
                 final String newFileId = StringUtils.md5InHex(uri +  System.currentTimeMillis());
                 logger.info("Writing file " + newFileId);
@@ -199,24 +193,30 @@ public class HekimaService {
             .flatMap(tuple -> {
                 final HekimaModel hekima = tuple.getT1();
                 final MultiValueMap<String, Part> d = tuple.getT2();
-                if(hasText(hekima.getFileId())) {
-                    logger.info("Renaming old file {} so it appears deleted", hekima.getFileId());
-                    final String fileId = hekima.getFileId();
-                    hekima.setFileId(null);
-                    hekima.setMimeType(null);
-                    final File oldFile = getDataFile(fileId);
-                    if(oldFile.exists()) {
-                        final boolean renameSuccess = oldFile.renameTo(getDataFile(fileId + "." + System.currentTimeMillis() + ".old"));
-                        if (!renameSuccess) {
-                            throw new UnrecoverableServiceException("Could not rename file " + fileId);
-                        }
-                    } else {
-                        logger.warn("File {} does not exist anymore", fileId);
-                    }
-                }
+                deleteFile(hekima);
                 return hekimaRepository.save(hekima);
             })
             .flatMap(value -> ok().contentType(MediaType.APPLICATION_JSON).body(BodyInserters.fromValue(toView(value))));
+    }
+
+    private void deleteFile(HekimaModel hekima) {
+        if(hasText(hekima.getFileId())) {
+            logger.info("Renaming old file {} so it appears deleted", hekima.getFileId());
+            final String fileId = hekima.getFileId();
+            hekima.setFileId(null);
+            hekima.setMimeType(null);
+            final File oldFile = getDataFile(fileId);
+            if(oldFile.exists()) {
+                final boolean renameSuccess = oldFile.renameTo(getDataFile(fileId + "." + System.currentTimeMillis() + ".old"));
+                if (!renameSuccess) {
+                    throw new UnrecoverableServiceException("Could not rename file " + fileId);
+                }
+            } else {
+                logger.warn("File {} does not exist anymore", fileId);
+            }
+        } else {
+            logger.info("No file to delete for note {}", hekima.getUri());
+        }
     }
 
     @Transactional(readOnly = true)
@@ -225,6 +225,7 @@ public class HekimaService {
         return hekimaRepository.findById(uri)
             .filter(hekima -> hasText(hekima.getFileId()))
             .map(hekima -> Pair.of(getDataFile(hekima.getFileId()), hekima.getMimeType()))
+            .filter(value -> value.getFirst().exists())
             .flatMap(value -> {
                 try {
                     return ok()
