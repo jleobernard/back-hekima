@@ -117,7 +117,7 @@ public class HekimaService {
             .flatMap(uris -> hekimaRepository.findAllById(uris).collectList()
                 .map(models -> {
                     final List<HekimaModel> sorted = new ArrayList<>(models);
-                    sorted.sort(Comparator.comparingInt(uris::indexOf));
+                    sorted.sort(Comparator.comparingInt(h -> uris.indexOf(h.getUri())));
                     return sorted.stream().map(HekimaService::toView).collect(Collectors.toList());
                 }));
         return ok().contentType(MediaType.APPLICATION_JSON).body(hekimas, HekimaView.class);
