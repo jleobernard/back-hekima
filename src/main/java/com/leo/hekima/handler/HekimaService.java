@@ -96,7 +96,7 @@ public class HekimaService {
         StatementBuilder.OngoingReadingWithoutWhere filter = Cypher.match(m);
         request.queryParam("source").ifPresent(sourceUri -> {
             filter.match(rs);
-            s.withProperties("uri", parameter("source"));
+            filter.where(s.property("uri").isEqualTo(parameter("source")));
             parameters.put("source", sourceUri);
         });
         List<String> tags = request.queryParams().get("tag");
