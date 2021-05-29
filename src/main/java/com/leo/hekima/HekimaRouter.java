@@ -1,6 +1,6 @@
 package com.leo.hekima;
 
-import com.leo.hekima.handler.HekimaService;
+import com.leo.hekima.handler.NoteService;
 import com.leo.hekima.handler.SourceService;
 import com.leo.hekima.handler.TagService;
 import org.springframework.context.annotation.Bean;
@@ -16,31 +16,31 @@ import static org.springframework.web.reactive.function.server.RequestPredicates
 public class HekimaRouter {
 
     @Bean
-    public RouterFunction<ServerResponse> route(HekimaService hekimaService,
+    public RouterFunction<ServerResponse> route(NoteService noteService,
                                                 SourceService sourceService,
                                                 TagService tagService) {
         return RouterFunctions
-                .route(GET("/api/hekimas")
+                .route(GET("/api/notes")
                                 .and(accept(MediaType.APPLICATION_JSON)),
-                        hekimaService::search)
-                .andRoute(POST("/api/hekimas")
+                        noteService::search)
+                .andRoute(POST("/api/notes")
                                 .and(contentType(MediaType.APPLICATION_JSON))
                                 .and(accept(MediaType.APPLICATION_JSON)),
-                        hekimaService::upsert)
-                .andRoute(DELETE("/api/hekimas/{uri}")
+                        noteService::upsert)
+                .andRoute(DELETE("/api/notes/{uri}")
                                 .and(accept(MediaType.APPLICATION_JSON)),
-                        hekimaService::delete)
-                .andRoute(GET("/api/hekimas/{uri}")
+                        noteService::delete)
+                .andRoute(GET("/api/notes/{uri}")
                                 .and(accept(MediaType.APPLICATION_JSON)),
-                        hekimaService::findByUri)
-                .andRoute(POST("/api/hekimas/{uri}/file")
+                        noteService::findByUri)
+                .andRoute(POST("/api/notes/{uri}/file")
                             .and(contentType(MediaType.MULTIPART_FORM_DATA))
                             .and(accept(MediaType.APPLICATION_JSON)),
-                        hekimaService::uploadFile)
-                .andRoute(GET("/api/hekimas/{uri}/file"),
-                        hekimaService::getFile)
-                .andRoute(DELETE("/api/hekimas/{uri}/file"),
-                        hekimaService::deleteFile)
+                        noteService::uploadFile)
+                .andRoute(GET("/api/notes/{uri}/file"),
+                        noteService::getFile)
+                .andRoute(DELETE("/api/notes/{uri}/file"),
+                        noteService::deleteFile)
                 .andRoute(GET("/api/sources")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         sourceService::search)

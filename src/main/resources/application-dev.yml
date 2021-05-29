@@ -1,0 +1,9 @@
+db:
+  port: 5432
+  password: JeK1ffeMesNotes2!
+data:
+  dir: /data/upload
+
+
+fcm:
+  credentials: /opt/projetcs/ich/laflemme/src/main/resources/secrets/fcm.json

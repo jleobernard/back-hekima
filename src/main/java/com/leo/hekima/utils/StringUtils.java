@@ -98,5 +98,8 @@ public final class StringUtils {
             return Optional.ofNullable(suffix);
         }
     }
+    public static final boolean isNotEmpty(final String seq) {
+        return seq != null && !seq.trim().isEmpty();
+    }
 
 }

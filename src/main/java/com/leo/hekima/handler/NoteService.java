@@ -1,27 +1,24 @@
 package com.leo.hekima.handler;
 
 import com.leo.hekima.exception.UnrecoverableServiceException;
-import com.leo.hekima.model.HekimaModel;
-import com.leo.hekima.model.HekimaSourceModel;
-import com.leo.hekima.model.HekimaTagModel;
-import com.leo.hekima.repository.HekimaRepository;
+import com.leo.hekima.model.NoteModel;
+import com.leo.hekima.model.NoteTagModel;
+import com.leo.hekima.model.SourceModel;
+import com.leo.hekima.repository.NoteRepository;
+import com.leo.hekima.repository.NoteTagRepository;
 import com.leo.hekima.repository.SourceRepository;
 import com.leo.hekima.repository.TagRepository;
 import com.leo.hekima.to.HekimaUpsertRequest;
-import com.leo.hekima.to.HekimaView;
-import com.leo.hekima.utils.RequestUtils;
+import com.leo.hekima.to.NoteView;
+import com.leo.hekima.utils.DataUtils;
 import com.leo.hekima.utils.StringUtils;
-import org.neo4j.cypherdsl.core.Cypher;
-import org.neo4j.cypherdsl.core.Node;
-import org.neo4j.cypherdsl.core.Relationship;
-import org.neo4j.cypherdsl.core.StatementBuilder;
-import org.neo4j.cypherdsl.core.renderer.Renderer;
+import com.leo.hekima.utils.WebUtils;
+import io.r2dbc.spi.ConnectionFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.buffer.DataBufferUtils;
-import org.springframework.data.neo4j.core.ReactiveNeo4jTemplate;
 import org.springframework.data.util.Pair;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -34,6 +31,7 @@ import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.util.function.Tuple2;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -41,34 +39,36 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static org.neo4j.cypherdsl.core.Cypher.*;
+import static com.leo.hekima.utils.ReactiveUtils.orEmptyList;
+import static com.leo.hekima.utils.WebUtils.getPageAndSort;
 import static org.springframework.util.CollectionUtils.isEmpty;
 import static org.springframework.util.StringUtils.hasText;
 import static org.springframework.web.reactive.function.BodyExtractors.toMono;
 import static org.springframework.web.reactive.function.server.ServerResponse.*;
 
 @Component
-public class HekimaService {
-    private static final Logger logger = LoggerFactory.getLogger(HekimaService.class);
-    private final HekimaRepository hekimaRepository;
+public class NoteService {
+    private static final Logger logger = LoggerFactory.getLogger(NoteService.class);
+    private final NoteRepository noteRepository;
+    private final NoteTagRepository noteTagRepository;
     private final TagRepository tagRepository;
     private final SourceRepository sourceRepository;
-    private final ReactiveNeo4jTemplate neo4jTemplate;
+    private final ConnectionFactory connectionFactory;
     private final File dataDir;
-    private static final Renderer cypherRenderer = Renderer.getDefaultRenderer();
 
-    public HekimaService(HekimaRepository hekimaRepository,
-                         TagRepository tagRepository,
-                         SourceRepository sourceRepository,
-                         ReactiveNeo4jTemplate neo4jTemplate,
-                         @Value("${data.dir}") final String dataDirPath) {
-        this.hekimaRepository = hekimaRepository;
+    public NoteService(NoteRepository noteRepository,
+                       NoteTagRepository noteTagRepository, TagRepository tagRepository,
+                       SourceRepository sourceRepository,
+                       ConnectionFactory connectionFactory, @Value("${data.dir}") final String dataDirPath) {
+        this.noteRepository = noteRepository;
+        this.noteTagRepository = noteTagRepository;
         this.tagRepository = tagRepository;
         this.sourceRepository = sourceRepository;
-        this.neo4jTemplate = neo4jTemplate;
+        this.connectionFactory = connectionFactory;
         this.dataDir = new File(dataDirPath);
         if(!this.dataDir.exists()) {
             logger.info("Creating data directory {}", dataDirPath);
@@ -85,51 +85,69 @@ public class HekimaService {
         }
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public Mono<ServerResponse> search(ServerRequest request) {
-        Map<String, Object> parameters = new HashMap<>();
-        Node m = node("Hekima").named("m");
-        Node s = anyNode("s");
-        Node t = anyNode("t");
-        Relationship rs = m.relationshipTo(s, "SOURCE");
-        Relationship rt = m.relationshipTo(t, "TAG");
-        StatementBuilder.OngoingReadingWithoutWhere filter = Cypher.match(m);
-        request.queryParam("source").ifPresent(sourceUri -> {
-            filter.match(rs);
-            filter.where(s.property("uri").isEqualTo(parameter("source")));
-            parameters.put("source", sourceUri);
+        return Mono.from(connectionFactory.create()).flatMap(connection -> {
+            final List<String> conditions = new ArrayList<>();
+            var pageAndSort = getPageAndSort(request);
+            // TODO Sanitize
+            request.queryParam("source")
+                .filter(n -> !n.isBlank())
+                .map(n -> n.toLowerCase(Locale.ROOT).trim())
+                .filter(n -> n.matches("[a-z0-9]+"))
+                .ifPresent(s -> conditions.add("note.source_id = (SELECT id FROM source WHERE uri = '" + s + "')"));
+            request.queryParam("tags")
+                .filter(StringUtils::isNotEmpty)
+                .map(tu -> Arrays.stream(tu.split("\\s*,\\s*"))
+                        .map(DataUtils::sanitize)
+                        .filter(n -> n.matches("[a-z0-9]+"))
+                        .collect(Collectors.toList()))
+                .filter(l -> !l.isEmpty())
+                .ifPresent(s -> conditions.add("note.id IN (SELECT note_id FROM note_tag LEFT JOIN tag on tag.id = note_tag.tag_id WHERE tag.uri in ('" + String.join("','", s) + "'))"));
+            final StringBuilder sql = new StringBuilder("SELECT id, uri, valeur, created_at, source_id, mime_type, file_id from note ");
+            if(!conditions.isEmpty()) {
+                sql.append(" WHERE ");
+                sql.append(String.join(" AND ", conditions));
+            }
+            sql.append(" ORDER BY created_at DESC OFFSET ");
+            sql.append(pageAndSort.offset());
+            sql.append(" LIMIT ");
+            sql.append(pageAndSort.count());
+            var views = orEmptyList(
+                Flux.from(connection.createStatement(sql.toString()).execute())
+                .doFinally((st) -> Mono.from(connection.close()).subscribe())
+                .flatMap(result -> result.map((row, meta) -> new NoteModel(
+                    row.get("id", Long.class),
+                    row.get("uri", String.class),
+                    row.get("valeur", String.class),
+                    row.get("created_at", Instant.class),
+                    row.get("source_id", Long.class),
+                    row.get("mime_type", String.class),
+                    row.get("file_id", String.class)
+                )))
+            ).flatMap(notes -> {
+                var uris = notes.stream().map(NoteModel::getUri).collect(Collectors.toList());
+                var transformers = notes.stream()
+                    .map(this::toView)
+                    .collect(Collectors.toList());
+                return Mono.zip(transformers, aggregat -> Arrays.stream(aggregat).map(a -> (NoteView)a).collect(Collectors.toList()))
+                    .map(unorderdNoteViews -> {
+                        final List<NoteView> sorted = new ArrayList<>(unorderdNoteViews);
+                        sorted.sort(Comparator.comparingInt(h -> uris.indexOf(h.uri())));
+                        return sorted;
+                    });
+            });
+            return WebUtils.ok().body(views, NoteView.class);
         });
-        List<String> tags = request.queryParams().get("tag");
-        if(!isEmpty(tags)) {
-            filter.match(rt);
-            filter.where(t.property("uri").in(parameter("tags")));
-            parameters.put("tags", tags);
-        }
-        StatementBuilder.BuildableStatement statement = filter
-                .returningDistinct(m)
-                .orderBy(m.property("createdAt").descending())
-                .skip(RequestUtils.getOffset(request))
-                .limit(RequestUtils.getCount(request));
-        String cypher = cypherRenderer.render(statement.build());
-        Mono<Object> hekimas = neo4jTemplate.findAll(cypher, parameters, HekimaModel.class)
-            .map(HekimaModel::getUri)
-            .collectList()
-            .flatMap(uris -> hekimaRepository.findAllById(uris).collectList()
-                .map(models -> {
-                    final List<HekimaModel> sorted = new ArrayList<>(models);
-                    sorted.sort(Comparator.comparingInt(h -> uris.indexOf(h.getUri())));
-                    return sorted.stream().map(HekimaService::toView).collect(Collectors.toList());
-                }));
-        return ok().contentType(MediaType.APPLICATION_JSON).body(hekimas, HekimaView.class);
     }
 
 
     @Transactional
     public Mono<ServerResponse> delete(ServerRequest serverRequest) {
         final String uri = serverRequest.pathVariable("uri");
-        return hekimaRepository.findById(uri)
+        return noteRepository.findByUri(uri)
             .doOnNext(this::deleteFile)
-            .flatMap(hekimaRepository::delete)
+            .flatMap(noteRepository::delete)
             .flatMap(value -> {
                 logger.info("Note {} a bien été supprimée", uri);
                 return noContent().build();
@@ -144,8 +162,8 @@ public class HekimaService {
     @Transactional
     public Mono<ServerResponse> findByUri(ServerRequest serverRequest) {
         final String uri = serverRequest.pathVariable("uri");
-        return hekimaRepository.findById(uri)
-            .map(HekimaService::toView)
+        return noteRepository.findByUri(uri)
+            .flatMap(this::toView)
             .flatMap(value -> ok()
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(BodyInserters.fromValue(value)));
@@ -154,9 +172,9 @@ public class HekimaService {
     @Transactional
     public Mono<ServerResponse> uploadFile(ServerRequest serverRequest) {
         final String uri = serverRequest.pathVariable("uri");
-        return hekimaRepository.findById(uri).zipWith(serverRequest.multipartData())
+        return noteRepository.findByUri(uri).zipWith(serverRequest.multipartData())
             .flatMap(tuple -> {
-                final HekimaModel hekima = tuple.getT1();
+                final NoteModel hekima = tuple.getT1();
                 final MultiValueMap<String, Part> d = tuple.getT2();
                 deleteFile(hekima);
                 Part file = d.get("file").get(0);
@@ -181,7 +199,7 @@ public class HekimaService {
                     } catch (IOException e) {
                         throw new UnrecoverableServiceException("Cannot write new file", e);
                     }
-                }).then(hekimaRepository.save(hekima));
+                }).then(noteRepository.save(hekima));
             })
             .flatMap(value -> ok().contentType(MediaType.APPLICATION_JSON).body(BodyInserters.fromValue(toView(value))));
     }
@@ -189,17 +207,17 @@ public class HekimaService {
     @Transactional
     public Mono<ServerResponse> deleteFile(ServerRequest serverRequest) {
         final String uri = serverRequest.pathVariable("uri");
-        return hekimaRepository.findById(uri).zipWith(serverRequest.multipartData())
+        return noteRepository.findByUri(uri).zipWith(serverRequest.multipartData())
             .flatMap(tuple -> {
-                final HekimaModel hekima = tuple.getT1();
+                final NoteModel hekima = tuple.getT1();
                 final MultiValueMap<String, Part> d = tuple.getT2();
                 deleteFile(hekima);
-                return hekimaRepository.save(hekima);
+                return noteRepository.save(hekima);
             })
             .flatMap(value -> ok().contentType(MediaType.APPLICATION_JSON).body(BodyInserters.fromValue(toView(value))));
     }
 
-    private void deleteFile(HekimaModel hekima) {
+    private void deleteFile(NoteModel hekima) {
         if(hasText(hekima.getFileId())) {
             logger.info("Renaming old file {} so it appears deleted", hekima.getFileId());
             final String fileId = hekima.getFileId();
@@ -222,7 +240,7 @@ public class HekimaService {
     @Transactional(readOnly = true)
     public Mono<ServerResponse> getFile(ServerRequest serverRequest) {
         final String uri = serverRequest.pathVariable("uri");
-        return hekimaRepository.findById(uri)
+        return noteRepository.findByUri(uri)
             .filter(hekima -> hasText(hekima.getFileId()))
             .map(hekima -> Pair.of(getDataFile(hekima.getFileId()), hekima.getMimeType()))
             .filter(value -> value.getFirst().exists())
@@ -242,40 +260,40 @@ public class HekimaService {
     public Mono<ServerResponse> upsert(ServerRequest serverRequest) {
         return serverRequest.body(toMono(HekimaUpsertRequest.class))
             .flatMap(request ->  {
-                final String uri = request.getUri() == null ?
-                    StringUtils.md5InHex(request.getValeur() +"#"+request.getSource() + "#" + String.join("-",request.getTags())) :
-                    request.getUri();
+                final String uri = WebUtils.getOrCreateUri(request, serverRequest);
                 return Mono.zip(
                     Mono.just(request),
-                    hekimaRepository.findById(uri).switchIfEmpty(Mono.defer(() -> Mono.just(new HekimaModel(uri))))
+                    noteRepository.findByUri(uri).switchIfEmpty(Mono.defer(() -> Mono.just(new NoteModel(uri))))
                 );
             })
-            .doOnNext(uriAndSource -> {
-                HekimaModel hekima = uriAndSource.getT2();
-                hekimaRepository.deleteSourceAndTags(hekima.getUri());
-                if(hekima.getTags() == null) {
-                    hekima.setTags(new ArrayList<>());
+            .flatMap(uriAndSource -> {
+                NoteModel hekima = uriAndSource.getT2();
+                final Mono<Tuple2<HekimaUpsertRequest, NoteModel>> deletionTags;
+                hekima.setSourceId(null);
+                if(hekima.getId() == null) {
+                    deletionTags = Mono.just(uriAndSource);
                 } else {
-                    hekima.getTags().clear();
+                    deletionTags = noteRepository.deleteLinkWithTags(hekima.getId()).then(Mono.just(uriAndSource));
                 }
+                return deletionTags;
             })
             .flatMap(uriAndSource -> {
                 final HekimaUpsertRequest request = uriAndSource.getT1();
-                HekimaModel hekima = uriAndSource.getT2();
-                hekima.setValeur(request.getValeur());
-                hekima.setCreatedAt(System.currentTimeMillis());
-                Flux<HekimaTagModel> tagsFlux = (isEmpty(request.getTags()) ? Flux.empty() : tagRepository.findAllById(request.getTags()));
-                tagsFlux.doOnNext(tag -> hekima.getTags().add(tag))
-                        .subscribe();
-                Mono<HekimaSourceModel> sourceMono =
-                        request.getSource() == null ? Mono.empty() : sourceRepository.findById(request.getSource());
-                sourceMono.subscribe(hekima::setSource);
-                final Mono<HekimaModel> finalFlux = Flux.zip(tagsFlux, sourceMono.flux())
-                        .then(hekimaRepository.save(hekima));
-                finalFlux.subscribe();
-                return finalFlux;
-            }).flatMap(savedTag -> ok().contentType(MediaType.APPLICATION_JSON)
-                    .body(BodyInserters.fromValue(toView(savedTag))));
+                NoteModel note = uriAndSource.getT2();
+                note.setValeur(request.getValeur());
+                note.setCreatedAt(Instant.now());
+                final Mono<Void> saveTags = isEmpty(request.getTags()) ? Mono.empty() :
+                    tagRepository.findByUriIn(request.getTags())
+                    .doOnNext(tag -> {
+                        noteTagRepository.save(new NoteTagModel(note.getId(), tag.getId()));
+                    })
+                    .then();
+                final Mono<Void> sourceMono =
+                        request.getSource() == null ? Mono.empty() : sourceRepository.findByUri(request.getSource())
+                        .doOnNext(source -> note.setSourceId(source.getId()))
+                        .then();
+                return Mono.when(saveTags, sourceMono).then(Mono.defer(() -> noteRepository.save(note)));
+            }).flatMap(savedNote -> WebUtils.ok().body(savedNote, NoteView.class));
     }
 
     private File getDataFile(String fileId) {
@@ -284,7 +302,16 @@ public class HekimaService {
         return new File(dataDir, prefix1 + "/" + prefix2 + "/" + fileId);
     }
 
-    public static HekimaView toView(HekimaModel t) {
-        return new HekimaView(t.getUri(), t.getValeur(), t.getCreatedAt(), TagService.toView(t.getTags()), SourceService.toView(t.getSource()), hasText(t.getFileId()));
+    public Mono<NoteView> toView(NoteModel t) {
+        return Mono.zip(
+            orEmptyList(tagRepository.findByNoteId(t.getId())),
+            t.getSourceId() == null ?
+                Mono.just(Optional.empty()) :
+                sourceRepository.findById(t.getSourceId()).map(Optional::of).switchIfEmpty(Mono.just(Optional.empty())))
+        .map(tuple -> {
+            final var tags = TagService.toView(tuple.getT1());
+            final var source = tuple.getT2().map(s -> SourceService.toView((SourceModel) s)).orElse(null);
+            return new NoteView(t.getUri(), t.getValeur(), tags, source, hasText(t.getFileId()));
+        });
     }
 }

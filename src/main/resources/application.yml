@@ -1,0 +1,22 @@
+## default connection pool
+spring:
+  mvc.date-format: yyyy-MM-dd'T'HH:mm:ss
+  datasource.hikari:
+    connectionTimeout: 20000
+    maximumPoolSize: 5
+
+## PostgreSQL
+db:
+  host: localhost
+  port: 5432
+  dbname: notes
+  username: notes
+  password: password
+
+
+fcm:
+  credentials: /data/secrets/fcm.json
+
+app:
+  base:
+    url: https://notes.jleo.tech

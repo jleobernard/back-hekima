@@ -5,7 +5,6 @@ public class TagView {
     private String valeur;
     private String valeurRecherche;
     private TagView is;
-    private long lastUsed;
 
     public String getUri() {
         return uri;
@@ -39,20 +38,11 @@ public class TagView {
         this.is = is;
     }
 
-    public long getLastUsed() {
-        return lastUsed;
-    }
-
-    public void setLastUsed(long lastUsed) {
-        this.lastUsed = lastUsed;
-    }
-
-    public TagView(String uri, String valeur, String valeurRecherche, TagView is, long lastUsed) {
+    public TagView(String uri, String valeur, String valeurRecherche, TagView is) {
 
         this.uri = uri;
         this.valeur = valeur;
         this.valeurRecherche = valeurRecherche;
         this.is = is;
-        this.lastUsed = lastUsed;
     }
 }

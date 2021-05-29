@@ -1,17 +1,32 @@
 package com.leo.hekima.model;
 
-import org.springframework.data.neo4j.core.schema.Id;
-import org.springframework.data.neo4j.core.schema.Node;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
 
-@Node("Source")
-public class HekimaSourceModel {
+import java.time.Instant;
+
+@Table("note_source")
+public class SourceModel {
     @Id
+    private Long id;
     private String uri;
     private String titre;
+    @Column("titre_recherche")
     private String titreRecherche;
     private String auteur;
+    @Column("source_type")
     private String type;
-    private long lastUsed;
+    @Column("last_used")
+    private Instant lastUsed;
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
 
     public String getUri() {
         return uri;
@@ -45,19 +60,19 @@ public class HekimaSourceModel {
         this.auteur = auteur;
     }
 
-    public long getLastUsed() {
-        return lastUsed;
-    }
-
-    public void setLastUsed(long lastUsed) {
-        this.lastUsed = lastUsed;
-    }
-
     public String getType() {
         return type;
     }
 
     public void setType(String type) {
         this.type = type;
+    }
+
+    public Instant getLastUsed() {
+        return lastUsed;
+    }
+
+    public void setLastUsed(Instant lastUsed) {
+        this.lastUsed = lastUsed;
     }
 }

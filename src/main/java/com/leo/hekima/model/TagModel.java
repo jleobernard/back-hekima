@@ -1,18 +1,29 @@
 package com.leo.hekima.model;
 
-import org.springframework.data.neo4j.core.schema.Id;
-import org.springframework.data.neo4j.core.schema.Node;
-import org.springframework.data.neo4j.core.schema.Relationship;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
 
-@Node("Tag")
-public class HekimaTagModel {
+import java.time.Instant;
+
+@Table("tag")
+public class TagModel {
     @Id
+    private Long id;
     private String uri;
     private String valeur;
+    @Column("valeur_recherche")
     private String valeurRecherche;
-    @Relationship(type = "IS", direction = Relationship.Direction.OUTGOING)
-    private HekimaTagModel is;
-    private long lastUsed;
+    @Column("last_used")
+    private Instant lastUsed;
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
 
     public String getUri() {
         return uri;
@@ -38,19 +49,11 @@ public class HekimaTagModel {
         this.valeurRecherche = valeurRecherche;
     }
 
-    public HekimaTagModel getIs() {
-        return is;
-    }
-
-    public void setIs(HekimaTagModel is) {
-        this.is = is;
-    }
-
-    public long getLastUsed() {
+    public Instant getLastUsed() {
         return lastUsed;
     }
 
-    public void setLastUsed(long lastUsed) {
+    public void setLastUsed(Instant lastUsed) {
         this.lastUsed = lastUsed;
     }
 }
