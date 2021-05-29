@@ -4,6 +4,7 @@ import com.leo.hekima.exception.UnrecoverableServiceException;
 import com.leo.hekima.model.NoteModel;
 import com.leo.hekima.model.NoteTagModel;
 import com.leo.hekima.model.SourceModel;
+import com.leo.hekima.model.TagModel;
 import com.leo.hekima.repository.NoteRepository;
 import com.leo.hekima.repository.NoteTagRepository;
 import com.leo.hekima.repository.SourceRepository;
@@ -43,6 +44,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static com.leo.hekima.utils.ReactiveUtils.optionalEmptyDeferred;
 import static com.leo.hekima.utils.ReactiveUtils.orEmptyList;
 import static com.leo.hekima.utils.WebUtils.getPageAndSort;
 import static org.springframework.util.CollectionUtils.isEmpty;
@@ -201,7 +203,7 @@ public class NoteService {
                     }
                 }).then(noteRepository.save(hekima));
             })
-            .flatMap(value -> ok().contentType(MediaType.APPLICATION_JSON).body(BodyInserters.fromValue(toView(value))));
+            .flatMap(value -> WebUtils.ok().body(toView(value), NoteView.class));
     }
 
     @Transactional
@@ -258,6 +260,7 @@ public class NoteService {
 
     @Transactional
     public Mono<ServerResponse> upsert(ServerRequest serverRequest) {
+        final var now = Instant.now();
         return serverRequest.body(toMono(HekimaUpsertRequest.class))
             .flatMap(request ->  {
                 final String uri = WebUtils.getOrCreateUri(request, serverRequest);
@@ -282,18 +285,31 @@ public class NoteService {
                 NoteModel note = uriAndSource.getT2();
                 note.setValeur(request.getValeur());
                 note.setCreatedAt(Instant.now());
-                final Mono<Void> saveTags = isEmpty(request.getTags()) ? Mono.empty() :
-                    tagRepository.findByUriIn(request.getTags())
-                    .doOnNext(tag -> {
-                        noteTagRepository.save(new NoteTagModel(note.getId(), tag.getId()));
-                    })
-                    .then();
-                final Mono<Void> sourceMono =
-                        request.getSource() == null ? Mono.empty() : sourceRepository.findByUri(request.getSource())
-                        .doOnNext(source -> note.setSourceId(source.getId()))
-                        .then();
-                return Mono.when(saveTags, sourceMono).then(Mono.defer(() -> noteRepository.save(note)));
-            }).flatMap(savedNote -> WebUtils.ok().body(savedNote, NoteView.class));
+                return (request.getSource() == null ?
+                        Mono.just(Optional.ofNullable((SourceModel) null)) :
+                        optionalEmptyDeferred(sourceRepository.findByUri(request.getSource())))
+                .flatMap(maybeSource -> {
+                    maybeSource.ifPresent(s -> {
+                        note.setSourceId(s.getId());
+                        s.setLastUsed(Instant.now());
+                        sourceRepository.save(s).subscribe();
+                    });
+                    return noteRepository.save(note);
+                })
+                .flatMap(savedNote ->
+                    isEmpty(request.getTags()) ? Mono.just(savedNote) :
+                        orEmptyList(tagRepository.findByUriIn(request.getTags()))
+                        .flatMap(tags -> {
+                            final var links = tags.stream().map(tag -> new NoteTagModel(savedNote.getId(), tag.getId())).collect(Collectors.toList());
+                            for (TagModel tag : tags) {
+                                tag.setLastUsed(now);
+                            }
+                            tagRepository.saveAll(tags).subscribe();
+                            return noteTagRepository.saveAll(links).then(Mono.just(savedNote));
+                        })
+                )
+                .flatMap(savedNote -> WebUtils.ok().body(toView(savedNote), NoteView.class));
+            });
     }
 
     private File getDataFile(String fileId) {
