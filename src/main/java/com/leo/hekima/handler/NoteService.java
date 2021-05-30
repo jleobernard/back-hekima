@@ -1,5 +1,9 @@
 package com.leo.hekima.handler;
 
+import com.google.api.gax.core.FixedCredentialsProvider;
+import com.google.auth.oauth2.ServiceAccountCredentials;
+import com.google.cloud.vision.v1.*;
+import com.google.protobuf.ByteString;
 import com.leo.hekima.exception.UnrecoverableServiceException;
 import com.leo.hekima.model.NoteModel;
 import com.leo.hekima.model.NoteTagModel;
@@ -9,7 +13,9 @@ import com.leo.hekima.repository.NoteRepository;
 import com.leo.hekima.repository.NoteTagRepository;
 import com.leo.hekima.repository.SourceRepository;
 import com.leo.hekima.repository.TagRepository;
+import com.leo.hekima.to.AckResponse;
 import com.leo.hekima.to.HekimaUpsertRequest;
+import com.leo.hekima.to.MyPage;
 import com.leo.hekima.to.NoteView;
 import com.leo.hekima.utils.DataUtils;
 import com.leo.hekima.utils.StringUtils;
@@ -19,6 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.data.util.Pair;
 import org.springframework.http.HttpStatus;
@@ -44,6 +51,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static com.leo.hekima.handler.UserService.getAuthentication;
 import static com.leo.hekima.utils.ReactiveUtils.optionalEmptyDeferred;
 import static com.leo.hekima.utils.ReactiveUtils.orEmptyList;
 import static com.leo.hekima.utils.WebUtils.getPageAndSort;
@@ -61,17 +69,22 @@ public class NoteService {
     private final SourceRepository sourceRepository;
     private final ConnectionFactory connectionFactory;
     private final File dataDir;
+    private final String googleCredentialsPath;
+    private ImageAnnotatorClient vision;
 
     public NoteService(NoteRepository noteRepository,
                        NoteTagRepository noteTagRepository, TagRepository tagRepository,
                        SourceRepository sourceRepository,
-                       ConnectionFactory connectionFactory, @Value("${data.dir}") final String dataDirPath) {
+                       ConnectionFactory connectionFactory,
+                       @Value("${google.credentials}") final String googleCredentialsPath,
+                       @Value("${data.dir}") final String dataDirPath) {
         this.noteRepository = noteRepository;
         this.noteTagRepository = noteTagRepository;
         this.tagRepository = tagRepository;
         this.sourceRepository = sourceRepository;
         this.connectionFactory = connectionFactory;
         this.dataDir = new File(dataDirPath);
+        this.googleCredentialsPath = googleCredentialsPath;
         if(!this.dataDir.exists()) {
             logger.info("Creating data directory {}", dataDirPath);
             if(!this.dataDir.mkdirs()) {
@@ -85,6 +98,7 @@ public class NoteService {
         if(!this.dataDir.canWrite()) {
             throw new UnrecoverableServiceException("Data dir path " + dataDirPath + " is not writable");
         }
+        initVision();
     }
 
     @Transactional(readOnly = true)
@@ -329,5 +343,87 @@ public class NoteService {
             final var source = tuple.getT2().map(s -> SourceService.toView((SourceModel) s)).orElse(null);
             return new NoteView(t.getUri(), t.getValeur(), tags, source, hasText(t.getFileId()));
         });
+    }
+
+    private void initVision(final boolean failOnError) {
+        try {
+            final var myCredentials = ServiceAccountCredentials.fromStream(
+                    new FileInputStream(googleCredentialsPath));
+            vision = ImageAnnotatorClient.create(ImageAnnotatorSettings.newBuilder()
+                    .setCredentialsProvider(FixedCredentialsProvider.create(myCredentials))
+                    .build());
+        } catch (IOException e) {
+            if(failOnError) {
+                throw new UnrecoverableServiceException("Cannot initialize vision API", e);
+            } else {
+                logger.error("Cannot initialize vision API", e);
+            }
+        }
+    }
+    private void initVision() {
+        initVision(false);
+    }
+
+    public Mono<ServerResponse> parseNote(ServerRequest serverRequest) {
+        if(vision == null) {
+            initVision(true);
+        }
+        return Mono.zip(
+                getAuthentication(),
+                serverRequest.multipartData().flatMap(d -> readFileAsByteArray(d.get("file").get(0))))
+                .flatMap(tuple -> {
+                    final String auth = tuple.getT1().getName();
+                    logger.debug("{} wants to analyze a picture", auth);
+                    final var data = tuple.getT2();
+                    // Builds the image annotation request
+                    final List<AnnotateImageRequest> requests = new ArrayList<>();
+                    final Image img = Image.newBuilder().setContent(ByteString.copyFrom(data)).build();
+                    final Feature feat = Feature.newBuilder().setType(Feature.Type.DOCUMENT_TEXT_DETECTION).build();
+                    AnnotateImageRequest request =
+                            AnnotateImageRequest.newBuilder().addFeatures(feat).setImage(img).build();
+                    requests.add(request);
+                    // Performs label detection on the image file
+                    BatchAnnotateImagesResponse response = vision.batchAnnotateImages(requests);
+                    List<AnnotateImageResponse> responses = response.getResponsesList();
+                    if(responses.isEmpty()) {
+                        return ok().bodyValue(AckResponse.OK);
+                    } else {
+                        return responses.stream()
+                        .filter(r -> !r.hasError())
+                        .findFirst()
+                        .map(res -> {
+                            final TextAnnotation fullTextAnnotation = res.getFullTextAnnotation();
+                            final MyPage page = toMyObjects(fullTextAnnotation);
+                            return ok().bodyValue(page);
+                        }).orElseGet(() -> ok().bodyValue(AckResponse.OK));
+                    }
+                });
+    }
+
+    private MyPage toMyObjects(TextAnnotation fullTextAnnotation) {
+        return new MyPage(fullTextAnnotation.getPages(0).getBlocksList().stream().flatMap(googleBlock ->
+                googleBlock.getParagraphsList().stream().map(googleParagraph ->
+                        googleParagraph.getWordsList().stream().map(w -> w.getSymbolsList().stream().map(Symbol::getText).collect(Collectors.joining( "")))
+                                .collect(Collectors.joining(" "))
+                )
+        ).collect(Collectors.toList()));
+    }
+
+    private Mono<byte[]> readFileAsByteArray(final Part file) {
+        return file.content().collectList()
+            .map(dataBuffers -> {
+                int totalSize = 0;
+                for (DataBuffer dataBuffer : dataBuffers) {
+                    totalSize += dataBuffer.readableByteCount();
+                }
+                byte[] bytes = new byte[totalSize];
+                int offset = 0;
+                for (DataBuffer dataBuffer : dataBuffers) {
+                    final int count = dataBuffer.readableByteCount();
+                    dataBuffer.read(bytes, offset, count);
+                    offset += count;
+                }
+                return bytes;
+            });
     }
 }

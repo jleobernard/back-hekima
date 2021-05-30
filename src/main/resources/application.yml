@@ -13,7 +13,8 @@ db:
   username: notes
   password: password
 
-
+google:
+  credentials: /data/secrets/laflemme-3b669604d7e6.json
 fcm:
   credentials: /data/secrets/fcm.json
 

@@ -27,6 +27,8 @@ public class HekimaRouter {
                                 .and(contentType(MediaType.APPLICATION_JSON))
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         noteService::upsert)
+                .andRoute(POST("/api/notes:parse").and(contentType(MediaType.MULTIPART_FORM_DATA)).and(accept(MediaType.APPLICATION_JSON)),
+                noteService::parseNote)
                 .andRoute(DELETE("/api/notes/{uri}")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         noteService::delete)
