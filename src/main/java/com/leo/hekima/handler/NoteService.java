@@ -277,7 +277,7 @@ public class NoteService {
         final var now = Instant.now();
         return serverRequest.body(toMono(HekimaUpsertRequest.class))
             .flatMap(request ->  {
-                final String uri = WebUtils.getOrCreateUri(request, serverRequest);
+                final String uri = StringUtils.isNotEmpty(request.getUri()) ? request.getUri() : WebUtils.getOrCreateUri(request, serverRequest);
                 return Mono.zip(
                     Mono.just(request),
                     noteRepository.findByUri(uri).switchIfEmpty(Mono.defer(() -> Mono.just(new NoteModel(uri))))
