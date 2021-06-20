@@ -13,7 +13,7 @@ import org.springframework.web.reactive.function.server.ServerResponse;
 import static org.springframework.web.reactive.function.server.RequestPredicates.*;
 
 @Configuration
-public class HekimaRouter {
+public class NoteRouter {
 
     @Bean
     public RouterFunction<ServerResponse> route(NoteService noteService,
@@ -39,14 +39,12 @@ public class HekimaRouter {
                 .andRoute(GET("/api/notes/{uri}")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         noteService::findByUri)
-                .andRoute(POST("/api/notes/{uri}/file")
+                .andRoute(POST("/api/notes/{uri}/files")
                             .and(contentType(MediaType.MULTIPART_FORM_DATA))
                             .and(accept(MediaType.APPLICATION_JSON)),
-                        noteService::uploadFile)
-                .andRoute(GET("/api/notes/{uri}/file"),
+                        noteService::patchFiles)
+                .andRoute(GET("/api/notes/{uri}/files/{fileId}"),
                         noteService::getFile)
-                .andRoute(DELETE("/api/notes/{uri}/file"),
-                        noteService::deleteFile)
                 .andRoute(GET("/api/sources")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         sourceService::search)

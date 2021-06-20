@@ -1,23 +1,19 @@
 package com.leo.hekima.handler;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.vision.v1.*;
 import com.google.protobuf.ByteString;
 import com.leo.hekima.exception.UnrecoverableServiceException;
-import com.leo.hekima.model.NoteModel;
-import com.leo.hekima.model.NoteTagModel;
-import com.leo.hekima.model.SourceModel;
-import com.leo.hekima.model.TagModel;
+import com.leo.hekima.model.*;
 import com.leo.hekima.repository.NoteRepository;
 import com.leo.hekima.repository.NoteTagRepository;
 import com.leo.hekima.repository.SourceRepository;
 import com.leo.hekima.repository.TagRepository;
-import com.leo.hekima.to.AckResponse;
-import com.leo.hekima.to.HekimaUpsertRequest;
-import com.leo.hekima.to.MyPage;
-import com.leo.hekima.to.NoteView;
+import com.leo.hekima.to.*;
 import com.leo.hekima.utils.DataUtils;
+import com.leo.hekima.utils.JsonUtils;
 import com.leo.hekima.utils.StringUtils;
 import com.leo.hekima.utils.WebUtils;
 import io.r2dbc.spi.ConnectionFactory;
@@ -27,7 +23,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
-import org.springframework.data.util.Pair;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.Part;
@@ -56,7 +51,6 @@ import static com.leo.hekima.utils.ReactiveUtils.optionalEmptyDeferred;
 import static com.leo.hekima.utils.ReactiveUtils.orEmptyList;
 import static com.leo.hekima.utils.WebUtils.getPageAndSort;
 import static org.springframework.util.CollectionUtils.isEmpty;
-import static org.springframework.util.StringUtils.hasText;
 import static org.springframework.web.reactive.function.BodyExtractors.toMono;
 import static org.springframework.web.reactive.function.server.ServerResponse.*;
 
@@ -71,6 +65,7 @@ public class NoteService {
     private final File dataDir;
     private final String googleCredentialsPath;
     private ImageAnnotatorClient vision;
+    public static final TypeReference<List<NoteFilePatchAction>> TR_LIST_OF_ACTIONS = new TypeReference<>() {};
 
     public NoteService(NoteRepository noteRepository,
                        NoteTagRepository noteTagRepository, TagRepository tagRepository,
@@ -120,7 +115,7 @@ public class NoteService {
                         .collect(Collectors.toList()))
                 .filter(l -> !l.isEmpty())
                 .ifPresent(s -> conditions.add("note.id IN (SELECT note_id FROM note_tag LEFT JOIN tag on tag.id = note_tag.tag_id WHERE tag.uri in ('" + String.join("','", s) + "'))"));
-            final StringBuilder sql = new StringBuilder("SELECT id, uri, valeur, created_at, source_id, mime_type, file_id from note ");
+            final StringBuilder sql = new StringBuilder("SELECT id, uri, valeur, created_at, source_id, files from note ");
             if(!conditions.isEmpty()) {
                 sql.append(" WHERE ");
                 sql.append(String.join(" AND ", conditions));
@@ -138,8 +133,9 @@ public class NoteService {
                     row.get("valeur", String.class),
                     row.get("created_at", Instant.class),
                     row.get("source_id", Long.class),
-                    row.get("mime_type", String.class),
-                    row.get("file_id", String.class)
+                    Optional.ofNullable(row.get("files", String.class))
+                        .map(d -> JsonUtils.deserializeSilentFail(d, NoteFiles.class))
+                        .orElseGet(NoteFiles::new)
                 )))
             ).flatMap(notes -> {
                 var uris = notes.stream().map(NoteModel::getUri).collect(Collectors.toList());
@@ -162,7 +158,11 @@ public class NoteService {
     public Mono<ServerResponse> delete(ServerRequest serverRequest) {
         final String uri = serverRequest.pathVariable("uri");
         return noteRepository.findByUri(uri)
-            .doOnNext(this::deleteFile)
+            .doOnNext(note -> {
+                for (int i = 0; i < note.getFiles().files().size(); i++) {
+                    this.deleteFile(note, i);
+                }
+            })
             .flatMap(noteRepository::delete)
             .flatMap(value -> {
                 logger.info("Note {} a bien été supprimée", uri);
@@ -186,87 +186,133 @@ public class NoteService {
     }
 
     @Transactional
-    public Mono<ServerResponse> uploadFile(ServerRequest serverRequest) {
+    public Mono<ServerResponse> patchFiles(ServerRequest serverRequest) {
         final String uri = serverRequest.pathVariable("uri");
         return noteRepository.findByUri(uri).zipWith(serverRequest.multipartData())
-            .flatMap(tuple -> {
-                final NoteModel hekima = tuple.getT1();
-                final MultiValueMap<String, Part> d = tuple.getT2();
-                deleteFile(hekima);
-                Part file = d.get("file").get(0);
-                final String newFileId = StringUtils.md5InHex(uri +  System.currentTimeMillis());
-                logger.info("Writing file " + newFileId);
-                hekima.setFileId(newFileId);
-                hekima.setMimeType(Objects.requireNonNull(file.headers().getContentType()).toString());
-                final File newFile = getDataFile(newFileId);
-                try {
-                    newFile.getParentFile().mkdirs();
-                    newFile.createNewFile();
-                } catch (IOException e) {
-                    logger.error("Could not create file {}", newFile, e);
-                    throw new UnrecoverableServiceException("Cannot upload file");
-                }
-                return file.content().doOnNext(dataBuffer -> {
-                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                    dataBuffer.read(bytes);
+        .flatMap(tuple -> {
+            final NoteModel note = tuple.getT1();
+            final MultiValueMap<String, Part> d = tuple.getT2();
+            return d.get("request").get(0).content()
+            .collectList()
+            .map(dataBuffers -> {
+                byte[] bytes = new byte[dataBuffers.stream().mapToInt(DataBuffer::readableByteCount).sum()];
+                int start = 0;
+                for (DataBuffer dataBuffer : dataBuffers) {
+                    dataBuffer.read(bytes, start, dataBuffer.readableByteCount());
+                    start += dataBuffer.readableByteCount();
                     DataBufferUtils.release(dataBuffer);
-                    try {
-                        Files.write(newFile.toPath(), bytes, StandardOpenOption.APPEND);
-                    } catch (IOException e) {
-                        throw new UnrecoverableServiceException("Cannot write new file", e);
-                    }
-                }).then(noteRepository.save(hekima));
+                }
+                return JsonUtils.deserializeSilentFail(bytes,  TR_LIST_OF_ACTIONS);
             })
-            .flatMap(value -> WebUtils.ok().body(toView(value), NoteView.class));
+            .flatMap(actions -> executeActions(note, actions, d, 0, 0))
+            .flatMap(finalNote -> WebUtils.ok().bodyValue(finalNote.getFiles()));
+        });
     }
 
-    @Transactional
-    public Mono<ServerResponse> deleteFile(ServerRequest serverRequest) {
-        final String uri = serverRequest.pathVariable("uri");
-        return noteRepository.findByUri(uri).zipWith(serverRequest.multipartData())
-            .flatMap(tuple -> {
-                final NoteModel hekima = tuple.getT1();
-                final MultiValueMap<String, Part> d = tuple.getT2();
-                deleteFile(hekima);
-                return noteRepository.save(hekima);
-            })
-            .flatMap(value -> ok().contentType(MediaType.APPLICATION_JSON).body(BodyInserters.fromValue(toView(value))));
+    private Mono<NoteModel> executeActions(final NoteModel note, final List<NoteFilePatchAction> actions,
+                                           final MultiValueMap<String, Part> d, int actionIndex, int fileIndex) {
+        final var action = actions.get(actionIndex);
+        final Mono<Integer> mono;
+        if(NoteFilePatchAction.DELETE.equals(action)) {
+            if(!deleteFile(note, fileIndex)) {
+                throw new UnrecoverableServiceException("Could not delete specified file " + fileIndex);
+            }
+            mono = Mono.just(0);
+        } else if(NoteFilePatchAction.UPSERT.equals(action)) {
+            final var currentfiles = note.getFiles().files();
+            mono = upsertFile(note, currentfiles.size() > fileIndex ? currentfiles.get(fileIndex).fileId() : null, d.get("files").get(actionIndex))
+            .map(whatever -> 1);
+        } else {
+            mono = Mono.just(1);
+        }
+        return mono.flatMap(deltaFileIndex -> noteRepository.save(note).then(Mono.defer(() -> {
+            if (actionIndex >= actions.size() - 1) {
+                return Mono.just(note);
+            } else {
+                return executeActions(note, actions, d, actionIndex + 1, fileIndex + deltaFileIndex);
+            }
+        })));
     }
 
-    private void deleteFile(NoteModel hekima) {
-        if(hasText(hekima.getFileId())) {
-            logger.info("Renaming old file {} so it appears deleted", hekima.getFileId());
-            final String fileId = hekima.getFileId();
-            hekima.setFileId(null);
-            hekima.setMimeType(null);
+    private Mono<NoteModel> upsertFile(final NoteModel note, final String oldFileId, final Part filePart) {
+        final String mimeType = Objects.requireNonNull(filePart.headers().getContentType()).toString();
+        final var noteFiles = note.getFiles();
+        final var files = noteFiles.files();
+        NoteFile nf = null;
+        for (int i = 0; i < files.size(); i++) {
+            final var file = files.get(i);
+            if(file.fileId().equals(oldFileId)) {
+                files.set(i, new NoteFile(mimeType, oldFileId));
+                nf = file;
+                break;
+            }
+        }
+        if(nf == null) {
+            final String newFileId = StringUtils.md5InHex(note.getUri() +  System.currentTimeMillis());
+            nf = new NoteFile(mimeType, newFileId);
+            noteFiles.files().add(nf);
+        }
+        final String newFileId = nf.fileId();
+        logger.info("Writing file " + newFileId);
+        final File newFile = getDataFile(newFileId);
+        try {
+            newFile.getParentFile().mkdirs();
+            newFile.createNewFile();
+        } catch (IOException e) {
+            logger.error("Could not create file {}", newFile, e);
+            throw new UnrecoverableServiceException("Cannot upload file");
+        }
+        return filePart.content().doOnNext(dataBuffer -> {
+            byte[] bytes = new byte[dataBuffer.readableByteCount()];
+            dataBuffer.read(bytes);
+            DataBufferUtils.release(dataBuffer);
+            try {
+                Files.write(newFile.toPath(), bytes, StandardOpenOption.APPEND);
+            } catch (IOException e) {
+                throw new UnrecoverableServiceException("Cannot write new file", e);
+            }
+        }).then(noteRepository.save(note));
+    }
+
+    private boolean deleteFile(NoteModel note, final int fileIndex) {
+        final NoteFiles noteFiles = note.getFiles();
+        final var files = noteFiles.files();
+        final boolean deleted;
+        if(files.size() > fileIndex) {
+            logger.info("Renaming old file {} so it appears deleted", fileIndex);
+            final var fileId = files.get(fileIndex).fileId();
+            files.remove(fileIndex);
+            deleted = true;
             final File oldFile = getDataFile(fileId);
             if(oldFile.exists()) {
                 final boolean renameSuccess = oldFile.renameTo(getDataFile(fileId + "." + System.currentTimeMillis() + ".old"));
                 if (!renameSuccess) {
-                    throw new UnrecoverableServiceException("Could not rename file " + fileId);
+                    logger.warn("Could not rename file {}", fileId);
                 }
             } else {
                 logger.warn("File {} does not exist anymore", fileId);
             }
         } else {
-            logger.info("No file to delete for note {}", hekima.getUri());
+            deleted = false;
+            logger.info("Cannot delete file {} for note {} as there is not so many files", fileIndex, note.getUri());
         }
+        return deleted;
     }
 
     @Transactional(readOnly = true)
     public Mono<ServerResponse> getFile(ServerRequest serverRequest) {
         final String uri = serverRequest.pathVariable("uri");
+        final String fileId = serverRequest.pathVariable("fileId");
         return noteRepository.findByUri(uri)
-            .filter(hekima -> hasText(hekima.getFileId()))
-            .map(hekima -> Pair.of(getDataFile(hekima.getFileId()), hekima.getMimeType()))
-            .filter(value -> value.getFirst().exists())
+            .filter(hekima -> hekima.getFiles() != null && hekima.getFiles().files() != null && hekima.getFiles().files().stream().anyMatch(f -> f.fileId().equals(fileId)))
+            .map(hekima -> hekima.getFiles().files().stream().filter(f -> f.fileId().equals(fileId)).findAny().get())
             .flatMap(value -> {
                 try {
                     return ok()
-                        .contentType(MediaType.parseMediaType(value.getSecond()))
-                        .body(BodyInserters.fromResource(new InputStreamResource(new FileInputStream(value.getFirst()))));
+                        .contentType(MediaType.parseMediaType(value.mimeType()))
+                        .body(BodyInserters.fromResource(new InputStreamResource(new FileInputStream(getDataFile(value.fileId())))));
                 } catch (FileNotFoundException e) {
-                    logger.error("Cannot read file " + value.getFirst().getAbsolutePath());
+                    logger.error("Cannot read file {}", value.fileId());
                     throw new UnrecoverableServiceException("Cannot read file", e);
                 }
             }).switchIfEmpty(notFound().build());
@@ -341,7 +387,7 @@ public class NoteService {
         .map(tuple -> {
             final var tags = TagService.toView(tuple.getT1());
             final var source = tuple.getT2().map(s -> SourceService.toView((SourceModel) s)).orElse(null);
-            return new NoteView(t.getUri(), t.getValeur(), tags, source, hasText(t.getFileId()));
+            return new NoteView(t.getUri(), t.getValeur(), tags, source, t.getFiles().files());
         });
     }
 

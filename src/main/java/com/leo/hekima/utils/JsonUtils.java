@@ -67,6 +67,9 @@ public final class JsonUtils {
     }
 
     public static <T> T deserializeSilentFail(final String json, final Class<T> clazz) {
+        if(json == null) {
+            return null;
+        }
         try {
             return mapper.readValue(json, clazz);
         } catch (IOException e) {
@@ -82,6 +85,17 @@ public final class JsonUtils {
     }
 
     public static <T> T deserializeSilentFail(final String json, final TypeReference<T> typeReference) {
+        if(json == null)  {
+            return null;
+        }
+        try {
+            return mapper.readValue(json, typeReference);
+        } catch (IOException e) {
+            throw new UnrecoverableServiceException(e);
+        }
+    }
+
+    public static <T> T deserializeSilentFail(final byte[] json, final TypeReference<T> typeReference) {
         if(json == null)  {
             return null;
         }

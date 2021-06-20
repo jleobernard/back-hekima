@@ -17,37 +17,33 @@ public class NoteModel {
     private Instant createdAt;
     @Column("source_id")
     private Long sourceId;
-    @Column("mime_type")
-    private String mimeType;
-    @Column("file_id")
-    private String fileId;
+    private NoteFiles files;
 
     public NoteModel() {
+        this.files = new NoteFiles();
     }
 
     public NoteModel(String uri) {
         this.uri = uri;
+        this.files = new NoteFiles();
     }
 
-    public NoteModel(Long id, String uri, String valeur, Instant createdAt, Long sourceId, String mimeType, String fileId) {
+    public NoteModel(Long id, String uri, String valeur, Instant createdAt, Long sourceId, NoteFiles files) {
         this.id = id;
         this.uri = uri;
         this.valeur = valeur;
         this.createdAt = createdAt;
         this.sourceId = sourceId;
-        this.mimeType = mimeType;
-        this.fileId = fileId;
+        this.files = files;
     }
 
     public NoteModel(String uri, String valeur, Instant createdAt, List<TagModel> tags, Long source,
-                     String mimeType,
-                     String fileId) {
+                     NoteFiles files) {
         this.uri = uri;
         this.valeur = valeur;
         this.createdAt = createdAt;
         this.sourceId = source;
-        this.mimeType = mimeType;
-        this.fileId = fileId;
+        this.files = files;
     }
 
     public String getUri() {
@@ -90,19 +86,11 @@ public class NoteModel {
         this.sourceId = sourceId;
     }
 
-    public String getMimeType() {
-        return mimeType;
+    public NoteFiles getFiles() {
+        return files;
     }
 
-    public void setMimeType(String mimeType) {
-        this.mimeType = mimeType;
-    }
-
-    public String getFileId() {
-        return fileId;
-    }
-
-    public void setFileId(String fileId) {
-        this.fileId = fileId;
+    public void setFiles(NoteFiles files) {
+        this.files = files;
     }
 }

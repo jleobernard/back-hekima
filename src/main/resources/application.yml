@@ -4,7 +4,10 @@ spring:
   datasource.hikari:
     connectionTimeout: 20000
     maximumPoolSize: 5
-
+server:
+  servlet:
+    session:
+      timeout: 1h
 ## PostgreSQL
 db:
   host: localhost
