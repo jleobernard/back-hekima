@@ -3,6 +3,7 @@ package com.leo.hekima;
 import com.leo.hekima.handler.NoteService;
 import com.leo.hekima.handler.SourceService;
 import com.leo.hekima.handler.TagService;
+import com.leo.hekima.handler.UserService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
@@ -18,9 +19,13 @@ public class NoteRouter {
     @Bean
     public RouterFunction<ServerResponse> route(NoteService noteService,
                                                 SourceService sourceService,
-                                                TagService tagService) {
+                                                TagService tagService,
+                                                final UserService userService) {
         return RouterFunctions
-                .route(GET("/api/notes")
+                .route(GET("/api/user")
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        userService::me)
+                .andRoute(GET("/api/notes")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         noteService::search)
                 .andRoute(POST("/api/notes")

@@ -106,7 +106,7 @@ public class NoteService {
                 .filter(n -> !n.isBlank())
                 .map(n -> n.toLowerCase(Locale.ROOT).trim())
                 .filter(n -> n.matches("[a-z0-9]+"))
-                .ifPresent(s -> conditions.add("note.source_id = (SELECT id FROM source WHERE uri = '" + s + "')"));
+                .ifPresent(s -> conditions.add("note.source_id = (SELECT id FROM note_source WHERE uri = '" + s + "')"));
             request.queryParam("tags")
                 .filter(StringUtils::isNotEmpty)
                 .map(tu -> Arrays.stream(tu.split("\\s*,\\s*"))

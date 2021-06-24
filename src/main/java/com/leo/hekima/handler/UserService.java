@@ -5,9 +5,12 @@ import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.leo.hekima.exception.UnrecoverableServiceException;
 import com.leo.hekima.repository.UserRepository;
+import com.leo.hekima.to.AckResponse;
+import com.leo.hekima.utils.WebUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
@@ -17,6 +20,8 @@ import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.reactive.function.server.ServerRequest;
+import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Mono;
 
 import java.io.FileInputStream;
@@ -24,7 +29,6 @@ import java.io.IOException;
 
 @Service
 public class UserService implements ReactiveUserDetailsService {
-    private final Logger logger = LoggerFactory.getLogger(UserService.class);
     private final UserRepository userRepository;
 
     public UserService(UserRepository userRepository,
@@ -63,4 +67,9 @@ public class UserService implements ReactiveUserDetailsService {
             .filter(auth -> ! (auth instanceof AnonymousAuthenticationToken));
     }
 
+    public Mono<ServerResponse> me(ServerRequest request) {
+        return getAuthentication()
+            .flatMap(auth -> WebUtils.ok().bodyValue(AckResponse.OK))
+            .switchIfEmpty(ServerResponse.status(HttpStatus.UNAUTHORIZED).build());
+    }
 }

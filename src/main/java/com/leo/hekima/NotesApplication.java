@@ -4,9 +4,9 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class HekimaApplication {
+public class NotesApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(HekimaApplication.class, args);
+		SpringApplication.run(NotesApplication.class, args);
 	}
 }
