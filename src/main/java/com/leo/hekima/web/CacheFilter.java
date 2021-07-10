@@ -13,7 +13,7 @@ public class CacheFilter implements WebFilter {
         var path = serverWebExchange.getRequest().getPath().toString();
         if(path.matches("/api/notes/[0-9a-z]+/files/[0-9a-z]+")) {
             serverWebExchange.getResponse()
-                    .getHeaders().add("Cache-Control", "max-age=3600");
+                    .getHeaders().add("Cache-Control", "max-age=31536000");
         }
         return webFilterChain.filter(serverWebExchange);
 

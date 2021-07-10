@@ -45,6 +45,7 @@ public class UserAccount {
         this.password = password;
     }
 
+    /*
     public static void main(String[] args) {
         int strength = 10; // work factor of bcrypt
         BCryptPasswordEncoder bCryptPasswordEncoder =
@@ -52,5 +53,5 @@ public class UserAccount {
         String encodedPassword = bCryptPasswordEncoder.encode("");
         System.out.println(encodedPassword);
         System.out.println(StringUtils.sha1InHex(""));
-    }
+    }*/
 }

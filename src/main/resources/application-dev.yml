@@ -1,0 +1,12 @@
+db:
+  port: 5432
+  password: JeK1ffeMesNotes2!
+data:
+  dir: /data/upload
+
+
+google:
+  credentials: /opt/projetcs/ich/hekima/src/main/resources/secrets/laflemme-3b669604d7e6.json
+
+fcm:
+  credentials: /opt/projetcs/ich/laflemme/src/main/resources/secrets/fcm.json
