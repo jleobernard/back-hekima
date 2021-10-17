@@ -25,6 +25,9 @@ public class NoteRouter {
                 .route(GET("/api/user")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         userService::me)
+                .andRoute(GET("/api/authentication:status")
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        userService::me)
                 .andRoute(GET("/api/notes")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         noteService::search)
