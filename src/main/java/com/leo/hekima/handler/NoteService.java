@@ -115,7 +115,7 @@ public class NoteService {
                         .collect(Collectors.toList()))
                 .filter(l -> !l.isEmpty())
                 .ifPresent(s -> conditions.add("note.id IN (SELECT note_id FROM note_tag LEFT JOIN tag on tag.id = note_tag.tag_id WHERE tag.uri in ('" + String.join("','", s) + "'))"));
-            final StringBuilder sql = new StringBuilder("SELECT id, uri, valeur, created_at, source_id, files from note ");
+            final StringBuilder sql = new StringBuilder("SELECT id, uri, valeur, created_at, source_id, files, subs from note ");
             if(!conditions.isEmpty()) {
                 sql.append(" WHERE ");
                 sql.append(String.join(" AND ", conditions));
@@ -135,7 +135,10 @@ public class NoteService {
                     row.get("source_id", Long.class),
                     Optional.ofNullable(row.get("files", String.class))
                         .map(d -> JsonUtils.deserializeSilentFail(d, NoteFiles.class))
-                        .orElseGet(NoteFiles::new)
+                        .orElseGet(NoteFiles::new),
+                    Optional.ofNullable(row.get("subs", String.class))
+                            .map(d -> JsonUtils.deserializeSilentFail(d, NoteSubs.class))
+                            .orElseGet(NoteSubs::new)
                 )))
             ).flatMap(notes -> {
                 var uris = notes.stream().map(NoteModel::getUri).collect(Collectors.toList());
@@ -321,7 +324,7 @@ public class NoteService {
     @Transactional
     public Mono<ServerResponse> upsert(ServerRequest serverRequest) {
         final var now = Instant.now();
-        return serverRequest.body(toMono(HekimaUpsertRequest.class))
+        return serverRequest.body(toMono(NoteUpsertRequest.class))
             .flatMap(request ->  {
                 final String uri = StringUtils.isNotEmpty(request.getUri()) ? request.getUri() : WebUtils.getOrCreateUri(request, serverRequest);
                 return Mono.zip(
@@ -331,7 +334,7 @@ public class NoteService {
             })
             .flatMap(uriAndSource -> {
                 NoteModel hekima = uriAndSource.getT2();
-                final Mono<Tuple2<HekimaUpsertRequest, NoteModel>> deletionTags;
+                final Mono<Tuple2<NoteUpsertRequest, NoteModel>> deletionTags;
                 hekima.setSourceId(null);
                 if(hekima.getId() == null) {
                     deletionTags = Mono.just(uriAndSource);
@@ -341,10 +344,13 @@ public class NoteService {
                 return deletionTags;
             })
             .flatMap(uriAndSource -> {
-                final HekimaUpsertRequest request = uriAndSource.getT1();
+                final NoteUpsertRequest request = uriAndSource.getT1();
                 NoteModel note = uriAndSource.getT2();
                 note.setValeur(request.getValeur());
-                note.setCreatedAt(Instant.now());
+                if(note.getCreatedAt() == null) {
+                    note.setCreatedAt(Instant.now());
+                }
+                note.setSubs(new NoteSubs(request.getSubs()));
                 return (request.getSource() == null ?
                         Mono.just(Optional.ofNullable((SourceModel) null)) :
                         optionalEmptyDeferred(sourceRepository.findByUri(request.getSource())))
@@ -387,7 +393,7 @@ public class NoteService {
         .map(tuple -> {
             final var tags = TagService.toView(tuple.getT1());
             final var source = tuple.getT2().map(s -> SourceService.toView((SourceModel) s)).orElse(null);
-            return new NoteView(t.getUri(), t.getValeur(), tags, source, t.getFiles().files());
+            return new NoteView(t.getUri(), t.getValeur(), tags, source, t.getFiles().files(), t.getSubs().subs());
         });
     }
 

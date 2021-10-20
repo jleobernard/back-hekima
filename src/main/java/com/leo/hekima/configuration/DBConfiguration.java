@@ -2,6 +2,8 @@ package com.leo.hekima.configuration;
 
 import com.leo.hekima.model.NoteFilesReader;
 import com.leo.hekima.model.NoteFilesWriter;
+import com.leo.hekima.model.NoteSubsReader;
+import com.leo.hekima.model.NoteSubsWriter;
 import io.r2dbc.spi.ConnectionFactories;
 import io.r2dbc.spi.ConnectionFactory;
 import io.r2dbc.spi.ConnectionFactoryOptions;
@@ -46,6 +48,8 @@ public class DBConfiguration extends AbstractR2dbcConfiguration {
         List<Converter<?, ?>> converters = new ArrayList<>();
         converters.add(new NoteFilesWriter());
         converters.add(new NoteFilesReader());
+        converters.add(new NoteSubsWriter());
+        converters.add(new NoteSubsReader());
         return new R2dbcCustomConversions(getStoreConversions(), converters);
     }
 }

@@ -18,32 +18,38 @@ public class NoteModel {
     @Column("source_id")
     private Long sourceId;
     private NoteFiles files;
+    private NoteSubs subs;
 
     public NoteModel() {
         this.files = new NoteFiles();
+        this.subs = new NoteSubs();
     }
 
     public NoteModel(String uri) {
         this.uri = uri;
         this.files = new NoteFiles();
+        this.subs = new NoteSubs();
     }
 
-    public NoteModel(Long id, String uri, String valeur, Instant createdAt, Long sourceId, NoteFiles files) {
+    public NoteModel(Long id, String uri, String valeur, Instant createdAt, Long sourceId,
+                     NoteFiles files, NoteSubs subs) {
         this.id = id;
         this.uri = uri;
         this.valeur = valeur;
         this.createdAt = createdAt;
         this.sourceId = sourceId;
         this.files = files;
+        this.subs = subs;
     }
 
     public NoteModel(String uri, String valeur, Instant createdAt, List<TagModel> tags, Long source,
-                     NoteFiles files) {
+                     NoteFiles files, NoteSubs subs) {
         this.uri = uri;
         this.valeur = valeur;
         this.createdAt = createdAt;
         this.sourceId = source;
         this.files = files;
+        this.subs = subs;
     }
 
     public String getUri() {
@@ -92,5 +98,13 @@ public class NoteModel {
 
     public void setFiles(NoteFiles files) {
         this.files = files;
+    }
+
+    public NoteSubs getSubs() {
+        return subs;
+    }
+
+    public void setSubs(NoteSubs subs) {
+        this.subs = subs;
     }
 }
