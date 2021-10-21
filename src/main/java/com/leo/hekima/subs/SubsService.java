@@ -1,0 +1,117 @@
+package com.leo.hekima.subs;
+
+import com.leo.hekima.exception.UnrecoverableServiceException;
+import com.leo.hekima.utils.WebUtils;
+import com.opencsv.CSVReader;
+import com.opencsv.exceptions.CsvException;
+import kr.co.shineware.nlp.komoran.constant.DEFAULT_MODEL;
+import kr.co.shineware.nlp.komoran.core.Komoran;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.server.ServerRequest;
+import org.springframework.web.reactive.function.server.ServerResponse;
+import reactor.core.publisher.Mono;
+
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Component
+public class SubsService {
+    private static final Logger logger = LoggerFactory.getLogger(SubsService.class);
+    private final Komoran komoran;
+    private final List<SubsDbEntry> db;
+
+    public SubsService(@Value("${subs.store.path}") final String subsStorePath) {
+        logger.info("Loading Komoran...");
+        this.komoran = new Komoran(DEFAULT_MODEL.FULL);
+        logger.info("Komoran loaded");
+        this.db = new ArrayList<>();
+        loadDb(subsStorePath);
+    }
+
+    private void loadDb(String subsStorePath) {
+        final File subsStore = new File(subsStorePath);
+        ensureExistsAndReadable(subsStore);
+        final File[] directories = subsStore.listFiles(File::isDirectory);
+        for (File directory : directories) {
+            final String prefix = directory.getName();
+            final File csvFile = new File(directory, prefix + ".csv");
+            if(csvFile.exists()) {
+                final List<SubsDbEntry> entries = loadSubsFromFile(csvFile);
+                if(entries.isEmpty()) {
+                    logger.info("No entries in " + csvFile.getAbsolutePath());
+                } else {
+                    db.addAll(entries);
+                    logger.info("{} entries loadded from " + csvFile.getAbsolutePath(), entries.size());
+                }
+            } else {
+                logger.info(directory.getAbsolutePath() + " does not exist");
+            }
+        }
+        logger.info("{} subs loaded", db.size());
+    }
+
+    public Mono<ServerResponse> search(final ServerRequest serverRequest) {
+        final String query = serverRequest.queryParam("q").orElse("");
+        logger.info("Looking for {}", query);
+        final var searchPattern = new SearchPattern(query, this.komoran);
+        final var fixWords = searchPattern.getFixWords();
+        final var candidates =
+            this.db.stream().filter(entry -> entry.hasEveryWord(entry, fixWords))
+            .collect(Collectors.toList());
+        /*
+        for candidate in candidates:
+            # La boucle suivante peut-être optimisée pour savoir à quel index on
+            # pourrait reprendre après avoir arrêté à un certain état de la machine
+            # à état mais 1/ c'est long à faire 2/ pas sûr qu'on ait de meilleurs
+            # résultats comme les phrases et les requêtes sont relativement petites
+            for i in range(0, len(prepared_sentence)):
+                if search_pattern.matches(prepared_sentence, i):
+                    results.append(sentence)
+                    break
+         */
+        return WebUtils.ok().bodyValue(
+                candidates.stream()
+                        .map(m -> new SubsEntryView(m.videoName(), m.subs(), m.fromTs(), m.toTs()))
+                        .collect(Collectors.toList()));
+    }
+
+    private List<SubsDbEntry> loadSubsFromFile(final File csvFile) {
+        final String fileName = csvFile.getName();
+        try (CSVReader reader = new CSVReader(new FileReader(csvFile, StandardCharsets.UTF_8))) {
+            List<String[]> lines = reader.readAll();
+            return lines.stream().skip(1)
+                .map(line -> {
+                    List<PosTag> tags = new ArrayList<>();
+                    for (int i = 5; i < line.length - 1; i+=2) {
+                        tags.add(new PosTag(line[i], line[i+1]));
+                    }
+                    return new SubsDbEntry(fileName, line[2],
+                            Float.parseFloat(line[3]),
+                            Float.parseFloat(line[4]),
+                            tags);
+                }).collect(Collectors.toList());
+        } catch (IOException | CsvException e) {
+            logger.error("Error while analyzing file {}", csvFile.getAbsoluteFile());
+        }
+        return Collections.emptyList();
+    }
+
+    private void ensureExistsAndReadable(File subsStore) {
+        if(!subsStore.exists()) {
+            throw new UnrecoverableServiceException(subsStore.getAbsolutePath() + " should exists");
+        }
+        if(!subsStore.canRead()) {
+            throw new UnrecoverableServiceException(subsStore.getAbsolutePath() + " not readable");
+        }
+    }
+
+}

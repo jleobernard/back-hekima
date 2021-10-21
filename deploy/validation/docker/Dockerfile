@@ -1,6 +1,7 @@
 FROM openjdk:16-slim
 VOLUME /tmp
 VOLUME /logs
+VOLUME /kosubs
 ADD hekima.jar hekima.jar
 RUN sh -c 'touch /hekima.jar'
 RUN sh -c 'apt-get update'

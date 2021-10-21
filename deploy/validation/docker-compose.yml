@@ -11,6 +11,7 @@ services:
     volumes:
       - ./logs:/logs
       - ./data:/data
+      - /opt/data/korean-subs/store:/kosubs
 networks:
   default:
     external:

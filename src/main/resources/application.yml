@@ -24,3 +24,7 @@ fcm:
 app:
   base:
     url: https://notes.jleo.tech
+
+subs:
+  store:
+    path: /opt/data/korean-subs/store

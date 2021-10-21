@@ -4,6 +4,7 @@ import com.leo.hekima.handler.NoteService;
 import com.leo.hekima.handler.SourceService;
 import com.leo.hekima.handler.TagService;
 import com.leo.hekima.handler.UserService;
+import com.leo.hekima.subs.SubsService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
@@ -17,9 +18,10 @@ import static org.springframework.web.reactive.function.server.RequestPredicates
 public class NoteRouter {
 
     @Bean
-    public RouterFunction<ServerResponse> route(NoteService noteService,
-                                                SourceService sourceService,
-                                                TagService tagService,
+    public RouterFunction<ServerResponse> route(final NoteService noteService,
+                                                final SourceService sourceService,
+                                                final TagService tagService,
+                                                final SubsService subsService,
                                                 final UserService userService) {
         return RouterFunctions
                 .route(GET("/api/user")
@@ -28,6 +30,9 @@ public class NoteRouter {
                 .andRoute(GET("/api/authentication:status")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         userService::me)
+                .andRoute(GET("/api/kosubs")
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        subsService::search)
                 .andRoute(GET("/api/notes")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         noteService::search)
