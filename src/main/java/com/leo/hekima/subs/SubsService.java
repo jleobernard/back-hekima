@@ -85,7 +85,7 @@ public class SubsService {
     }
 
     private List<SubsDbEntry> loadSubsFromFile(final File csvFile) {
-        final String fileName = csvFile.getName();
+        final String prefix = csvFile.getName().replace(".csv", "");
         try (CSVReader reader = new CSVReader(new FileReader(csvFile, StandardCharsets.UTF_8))) {
             List<String[]> lines = reader.readAll();
             return lines.stream().skip(1)
@@ -94,7 +94,7 @@ public class SubsService {
                     for (int i = 5; i < line.length - 1; i+=2) {
                         tags.add(new PosTag(line[i], line[i+1]));
                     }
-                    return new SubsDbEntry(fileName, line[2],
+                    return new SubsDbEntry(prefix, line[2],
                             Float.parseFloat(line[3]),
                             Float.parseFloat(line[4]),
                             tags);
