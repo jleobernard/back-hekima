@@ -92,7 +92,12 @@ public class SearchPattern {
     }
 
     public boolean matches(final List<PosTag> taggedSentences) {
-        return matches(taggedSentences, 0);
+        for (int i = 0; i < taggedSentences.size(); i++) {
+            if(matches(taggedSentences, i)); {
+                return true;
+            }
+        }
+        return false;
     }
     public boolean matches(final List<PosTag> taggedSentences, final int start) {
         var currStates = newArrayList(this.stateMachine);

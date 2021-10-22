@@ -1,6 +1,7 @@
 package com.leo.hekima.subs;
 
 import com.leo.hekima.exception.UnrecoverableServiceException;
+import com.leo.hekima.utils.StringUtils;
 import com.leo.hekima.utils.WebUtils;
 import com.opencsv.CSVReader;
 import com.opencsv.exceptions.CsvException;
@@ -67,21 +68,18 @@ public class SubsService {
         final var candidates =
             this.db.stream().filter(entry -> entry.hasEveryWord(entry, fixWords))
             .collect(Collectors.toList());
-        /*
-        for candidate in candidates:
+        final List<SubsEntryView> results = candidates.stream().filter(candidate -> {
+            /*
             # La boucle suivante peut-être optimisée pour savoir à quel index on
             # pourrait reprendre après avoir arrêté à un certain état de la machine
             # à état mais 1/ c'est long à faire 2/ pas sûr qu'on ait de meilleurs
             # résultats comme les phrases et les requêtes sont relativement petites
-            for i in range(0, len(prepared_sentence)):
-                if search_pattern.matches(prepared_sentence, i):
-                    results.append(sentence)
-                    break
-         */
-        return WebUtils.ok().bodyValue(
-                candidates.stream()
-                        .map(m -> new SubsEntryView(m.videoName(), m.subs(), m.fromTs(), m.toTs()))
-                        .collect(Collectors.toList()));
+             */
+            return searchPattern.matches(candidate.tags());
+        })
+        .map(m -> new SubsEntryView(m.videoName(), m.subs(), m.fromTs(), m.toTs()))
+        .collect(Collectors.toList());
+        return WebUtils.ok().bodyValue(results);
     }
 
     private List<SubsDbEntry> loadSubsFromFile(final File csvFile) {
@@ -92,7 +90,12 @@ public class SubsService {
                 .map(line -> {
                     List<PosTag> tags = new ArrayList<>();
                     for (int i = 5; i < line.length - 1; i+=2) {
-                        tags.add(new PosTag(line[i], line[i+1]));
+                        final String content = line[i];
+                        if(StringUtils.isNotEmpty(content)) {
+                            tags.add(new PosTag(content, line[i + 1]));
+                        } else {
+                            break;
+                        }
                     }
                     return new SubsDbEntry(prefix, line[2],
                             Float.parseFloat(line[3]),
