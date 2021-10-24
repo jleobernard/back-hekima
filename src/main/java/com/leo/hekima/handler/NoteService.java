@@ -30,6 +30,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Flux;
@@ -65,6 +66,7 @@ public class NoteService {
     private final File dataDir;
     private final String googleCredentialsPath;
     private ImageAnnotatorClient vision;
+    private final WebClient webClient;
     public static final TypeReference<List<NoteFilePatchAction>> TR_LIST_OF_ACTIONS = new TypeReference<>() {};
 
     public NoteService(NoteRepository noteRepository,
@@ -72,7 +74,8 @@ public class NoteService {
                        SourceRepository sourceRepository,
                        ConnectionFactory connectionFactory,
                        @Value("${google.credentials}") final String googleCredentialsPath,
-                       @Value("${data.dir}") final String dataDirPath) {
+                       @Value("${data.dir}") final String dataDirPath,
+                       @Value("${subs.videoclipper.url}") final String videoClipperUrl) {
         this.noteRepository = noteRepository;
         this.noteTagRepository = noteTagRepository;
         this.tagRepository = tagRepository;
@@ -80,6 +83,7 @@ public class NoteService {
         this.connectionFactory = connectionFactory;
         this.dataDir = new File(dataDirPath);
         this.googleCredentialsPath = googleCredentialsPath;
+        this.webClient = WebClient.create(videoClipperUrl);
         if(!this.dataDir.exists()) {
             logger.info("Creating data directory {}", dataDirPath);
             if(!this.dataDir.mkdirs()) {
@@ -350,7 +354,30 @@ public class NoteService {
                 if(note.getCreatedAt() == null) {
                     note.setCreatedAt(Instant.now());
                 }
-                note.setSubs(new NoteSubs(request.getSubs()));
+                if(isEmpty(request.getSubs())) {
+                    note.setSubs(null);
+                } else {
+                    note.setSubs(new NoteSubs(request.getSubs().stream()
+                    .map(s -> {
+                        if(s.to() - s.from() < 2) {
+                            return new NoteSub(s.name(), s.from() - 1, s.to() + 1);
+                        } else {
+                            return s;
+                        }
+                    })
+                    .collect(Collectors.toList())));
+                    for (NoteSub sub : note.getSubs().subs()) {
+                        logger.debug("Asking to clip {} from {} to {}", sub.name(), sub.from(), sub.to());
+                        var l = webClient.post()
+                        .uri(b -> b.path("/api/clip")
+                                .queryParam("name", sub.name())
+                                .queryParam("from", sub.from())
+                                .queryParam("to", sub.to())
+                                  .build(sub.name(), sub.from(), sub.to()))
+                        .accept(MediaType.APPLICATION_JSON)
+                        .retrieve().bodyToMono(String.class).subscribe(b -> logger.debug("Clip call result : {}", b));
+                    }
+                }
                 return (request.getSource() == null ?
                         Mono.just(Optional.ofNullable((SourceModel) null)) :
                         optionalEmptyDeferred(sourceRepository.findByUri(request.getSource())))
@@ -393,7 +420,8 @@ public class NoteService {
         .map(tuple -> {
             final var tags = TagService.toView(tuple.getT1());
             final var source = tuple.getT2().map(s -> SourceService.toView((SourceModel) s)).orElse(null);
-            return new NoteView(t.getUri(), t.getValeur(), tags, source, t.getFiles().files(), t.getSubs().subs());
+            return new NoteView(t.getUri(), t.getValeur(), tags, source, t.getFiles().files(),
+                    t.getSubs() == null ? null : t.getSubs().subs());
         });
     }
 

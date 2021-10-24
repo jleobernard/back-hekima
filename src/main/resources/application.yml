@@ -28,3 +28,5 @@ app:
 subs:
   store:
     path: /opt/data/korean-subs/store
+  videoclipper:
+    url: http://localhost:8080
