@@ -1,7 +1,0 @@
-db:
-  host: postgres
-  password: JeK1ffeMesNotes2!
-data.dir: /data/upload
-subs:
-  store:
-    path: /kosubs
