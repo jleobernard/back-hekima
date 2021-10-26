@@ -33,6 +33,9 @@ public class NoteRouter {
                 .andRoute(GET("/api/kosubs")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         subsService::search)
+                .andRoute(GET("/api/kosubs:reload")
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        subsService::askReloadDb)
                 .andRoute(GET("/api/notes")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         noteService::search)

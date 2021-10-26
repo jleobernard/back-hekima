@@ -28,20 +28,23 @@ import java.util.stream.Collectors;
 public class SubsService {
     private static final Logger logger = LoggerFactory.getLogger(SubsService.class);
     private final Komoran komoran;
-    private final List<SubsDbEntry> db;
+    private List<SubsDbEntry> db;
+    private final String subsStorePath;
 
     public SubsService(@Value("${subs.store.path}") final String subsStorePath) {
         logger.info("Loading Komoran...");
         this.komoran = new Komoran(DEFAULT_MODEL.FULL);
         logger.info("Komoran loaded");
         this.db = new ArrayList<>();
-        loadDb(subsStorePath);
+        this.subsStorePath = subsStorePath;
+        reloadDb();
     }
 
-    private void loadDb(String subsStorePath) {
+    public void reloadDb() {
         final File subsStore = new File(subsStorePath);
         ensureExistsAndReadable(subsStore);
         final File[] directories = subsStore.listFiles(File::isDirectory);
+        final var db = new ArrayList<SubsDbEntry>();
         for (File directory : directories) {
             final String prefix = directory.getName();
             final File csvFile = new File(directory, prefix + ".csv");
@@ -58,6 +61,7 @@ public class SubsService {
             }
         }
         logger.info("{} subs loaded", db.size());
+        this.db = db;
     }
 
     public Mono<ServerResponse> search(final ServerRequest serverRequest) {
@@ -89,7 +93,7 @@ public class SubsService {
             return lines.stream().skip(1)
                 .map(line -> {
                     List<PosTag> tags = new ArrayList<>();
-                    for (int i = 5; i < line.length - 1; i+=2) {
+                    for (int i = 3; i < line.length - 1; i+=2) {
                         final String content = line[i];
                         if(StringUtils.isNotEmpty(content)) {
                             tags.add(new PosTag(content, line[i + 1]));
@@ -97,9 +101,9 @@ public class SubsService {
                             break;
                         }
                     }
-                    return new SubsDbEntry(prefix, line[2],
-                            Float.parseFloat(line[3]),
-                            Float.parseFloat(line[4]),
+                    return new SubsDbEntry(prefix, line[0],
+                            Float.parseFloat(line[1]),
+                            Float.parseFloat(line[2]),
                             tags);
                 }).collect(Collectors.toList());
         } catch (IOException | CsvException e) {
@@ -117,4 +121,8 @@ public class SubsService {
         }
     }
 
+    public Mono<ServerResponse> askReloadDb(ServerRequest request) {
+        reloadDb();
+        return WebUtils.ok().bodyValue("done");
+    }
 }

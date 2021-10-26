@@ -7,8 +7,6 @@ import com.leo.hekima.exception.UnrecoverableServiceException;
 import com.leo.hekima.repository.UserRepository;
 import com.leo.hekima.to.AckResponse;
 import com.leo.hekima.utils.WebUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;

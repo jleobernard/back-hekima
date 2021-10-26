@@ -32,7 +32,8 @@ public class SecurityConfiguration {
     public SecurityWebFilterChain securitygWebFilterChain(ServerHttpSecurity http) {
         return http.authorizeExchange()
             .pathMatchers("/api/login",
-                    "/api/authentication:status"/*,
+                    "/api/authentication:status",
+                    "/api/kosubs:reload"/*,
                     "/api/kosubs"*/
             ).permitAll()
             .anyExchange().authenticated()

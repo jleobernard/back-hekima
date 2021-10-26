@@ -1,7 +1,5 @@
 package com.leo.hekima.subs;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-
 import java.util.List;
 
 public record SubsDbEntry(String videoName,

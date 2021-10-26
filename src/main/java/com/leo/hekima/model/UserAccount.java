@@ -1,10 +1,6 @@
 package com.leo.hekima.model;
 
-import com.leo.hekima.utils.StringUtils;
 import org.springframework.data.annotation.Id;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-
-import java.security.SecureRandom;
 
 public class UserAccount {
     @Id
