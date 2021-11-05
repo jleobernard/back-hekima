@@ -64,6 +64,9 @@ public class NoteRouter {
                 .andRoute(GET("/api/sources")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         sourceService::search)
+                .andRoute(GET("/api/sources/{uri}")
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        sourceService::findByUri)
                 .andRoute(POST("/api/sources")
                     .and(contentType(MediaType.APPLICATION_JSON))
                     .and(accept(MediaType.APPLICATION_JSON)),
@@ -74,6 +77,9 @@ public class NoteRouter {
                 .andRoute(GET("/api/tags")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         tagService::search)
+                .andRoute(GET("/api/tags/{uri}")
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        tagService::findByUri)
                 .andRoute(POST("/api/tags")
                     .and(contentType(MediaType.APPLICATION_JSON))
                     .and(accept(MediaType.APPLICATION_JSON)),

@@ -40,6 +40,16 @@ public class SourceService {
         this.template = template;
     }
 
+
+    public Mono<ServerResponse> findByUri(ServerRequest serverRequest) {
+        final String uri = serverRequest.pathVariable("uri");
+        return sourceRepository.findByUri(uri)
+                .map(SourceService::toView)
+                .flatMap(value -> ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(BodyInserters.fromValue(value)));
+    }
+
     public Mono<ServerResponse> search(ServerRequest request) {
         var pageAndSort = getPageAndSort(request);
         var c = Criteria.empty();

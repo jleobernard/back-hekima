@@ -102,4 +102,13 @@ public class TagService {
     public static TagView toView(TagModel t) {
         return new TagView(t.getUri(), t.getValeur(), t.getValeurRecherche(), null);
     }
+
+    public Mono<ServerResponse> findByUri(ServerRequest serverRequest) {
+        final String uri = serverRequest.pathVariable("uri");
+        return tagRepository.findByUri(uri)
+                .map(TagService::toView)
+                .flatMap(value -> ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(BodyInserters.fromValue(value)));
+    }
 }
