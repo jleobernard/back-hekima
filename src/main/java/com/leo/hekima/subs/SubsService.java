@@ -1,5 +1,7 @@
 package com.leo.hekima.subs;
 
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Multimap;
 import com.leo.hekima.exception.UnrecoverableServiceException;
 import com.leo.hekima.utils.StringUtils;
 import com.leo.hekima.utils.WebUtils;
@@ -24,18 +26,21 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import static com.leo.hekima.subs.SearchPattern.*;
+
 @Component
 public class SubsService {
     private static final Logger logger = LoggerFactory.getLogger(SubsService.class);
     private final Komoran komoran;
-    private List<SubsDbEntry> db;
+    private List<SubsDbEntry> corpus;
+    private Multimap<PosTag, IndexEntry> db = HashMultimap.create(1, 1);
     private final String subsStorePath;
 
     public SubsService(@Value("${subs.store.path}") final String subsStorePath) {
         logger.info("Loading Komoran...");
         this.komoran = new Komoran(DEFAULT_MODEL.FULL);
         logger.info("Komoran loaded");
-        this.db = new ArrayList<>();
+        this.corpus = Collections.emptyList();
         this.subsStorePath = subsStorePath;
         reloadDb();
     }
@@ -44,44 +49,55 @@ public class SubsService {
         final File subsStore = new File(subsStorePath);
         ensureExistsAndReadable(subsStore);
         final File[] directories = subsStore.listFiles(File::isDirectory);
-        final var db = new ArrayList<SubsDbEntry>();
-        for (File directory : directories) {
-            final String prefix = directory.getName();
-            final File csvFile = new File(directory, prefix + ".csv");
-            if(csvFile.exists()) {
-                final List<SubsDbEntry> entries = loadSubsFromFile(csvFile);
-                if(entries.isEmpty()) {
-                    logger.info("No entries in " + csvFile.getAbsolutePath());
+        final var corpus = new ArrayList<SubsDbEntry>();
+        Multimap<PosTag, IndexEntry> db = HashMultimap.create();
+        if(directories != null) {
+            for (File directory : directories) {
+                final String prefix = directory.getName();
+                final File csvFile = new File(directory, prefix + ".csv");
+                if (csvFile.exists()) {
+                    final List<SubsDbEntry> entries = loadSubsFromFile(csvFile);
+                    if (entries.isEmpty()) {
+                        logger.info("No entries in " + csvFile.getAbsolutePath());
+                    } else {
+                        corpus.addAll(entries);
+                        logger.info("{} entries loadded from " + csvFile.getAbsolutePath(), entries.size());
+                    }
                 } else {
-                    db.addAll(entries);
-                    logger.info("{} entries loadded from " + csvFile.getAbsolutePath(), entries.size());
+                    logger.info(directory.getAbsolutePath() + " does not exist");
                 }
-            } else {
-                logger.info(directory.getAbsolutePath() + " does not exist");
             }
+            db = index(corpus);
         }
-        logger.info("{} subs loaded", db.size());
+        logger.info("{} subs loaded", corpus.size());
+        this.corpus = corpus;
         this.db = db;
     }
 
     public Mono<ServerResponse> search(final ServerRequest serverRequest) {
         final String query = serverRequest.queryParam("q").orElse("");
+        final float minSimilarity = Float.parseFloat(serverRequest.queryParam("sim").orElse("0.75"));
         logger.info("Looking for {}", query);
-        final var searchPattern = new SearchPattern(query, this.komoran);
-        final var fixWords = searchPattern.getFixWords();
-        final var candidates =
-            this.db.stream().filter(entry -> entry.hasEveryWord(entry, fixWords))
-            .collect(Collectors.toList());
-        final List<SubsEntryView> results = candidates.stream().filter(candidate -> {
-            /*
-            # La boucle suivante peut-être optimisée pour savoir à quel index on
-            # pourrait reprendre après avoir arrêté à un certain état de la machine
-            # à état mais 1/ c'est long à faire 2/ pas sûr qu'on ait de meilleurs
-            # résultats comme les phrases et les requêtes sont relativement petites
-             */
-            return searchPattern.matches(candidate.tags());
+        final List<PosTag> analyzedQuery = toSentence(query, komoran);
+        final float minScore = getMaxScore(analyzedQuery) * minSimilarity;
+        final List<Integer> firstCandidates = findFixMatches(analyzedQuery, this.db, minSimilarity);
+        final List<IndexWithScoreAndZone> matches = scoreSentencesAgainstQuery(analyzedQuery, firstCandidates,
+                this.corpus.stream().map(SubsDbEntry::tags).collect(Collectors.toList()));
+        final List<SubsEntryView> results = matches.stream()
+        .filter(m -> m.score() >= minScore)
+        .sorted((m1, m2) -> {
+            float delta = m2.score() - m1.score();
+            if(delta < 0) {
+                return -1;
+            } if(delta > 0) {
+                return 1;
+            }
+            return 0;
         })
-        .map(m -> new SubsEntryView(m.videoName(), m.subs(), m.fromTs(), m.toTs()))
+        .map(m -> {
+            final SubsDbEntry sub = this.corpus.get(m.sentenceIndex());
+            return new SubsEntryView(sub.videoName(), sub.subs(), sub.fromTs(), sub.toTs(), m.from(), m.to());
+        })
         .collect(Collectors.toList());
         return WebUtils.ok().bodyValue(results);
     }
@@ -124,5 +140,16 @@ public class SubsService {
     public Mono<ServerResponse> askReloadDb(ServerRequest request) {
         reloadDb();
         return WebUtils.ok().bodyValue("done");
+    }
+    public static Multimap<PosTag, IndexEntry> index(final List<SubsDbEntry> corpus) {
+        final Multimap<PosTag, IndexEntry> db = HashMultimap.create();
+        for (int i = 0; i < corpus.size(); i++) {
+            final List<PosTag> sentence = corpus.get(i).tags();
+            for (int indexTag = 0; indexTag < sentence.size(); indexTag++) {
+                final PosTag posTag = sentence.get(indexTag);
+                db.put(posTag, new IndexEntry(i, indexTag));
+            }
+        }
+        return db;
     }
 }

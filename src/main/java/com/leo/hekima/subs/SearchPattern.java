@@ -1,15 +1,21 @@
 package com.leo.hekima.subs;
 
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Multimap;
 import kr.co.shineware.nlp.komoran.core.Komoran;
 import kr.co.shineware.nlp.komoran.model.KomoranResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.yaml.snakeyaml.util.ArrayStack;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import static com.google.common.collect.Lists.newArrayList;
+import static com.leo.hekima.subs.AlignmentFailure.*;
+import static com.leo.hekima.subs.AlignmentSuccess.*;
 
 public class SearchPattern {
     private static final Logger logger = LoggerFactory.getLogger(SearchPattern.class);
@@ -19,108 +25,152 @@ public class SearchPattern {
             "<VSTEM>", "<ADJSTEM>", "≤NSTEM>", "<WORDS>", "<WORD>", "<VENDING>", "(", ")");
     public static final List<KwAndRpl> KEYWORDS_AND_REPLACEMENT = KEYWORDS.stream().map(SearchPattern::getKeywordAndReplacement).collect(Collectors.toList());;
 
-    private final List<PosTag> fixWords;
-    private final SearchState stateMachine;
+    private static final Map<AlignmentSuccess, Float> SCORES = new HashMap<>();
+    private static final Map<AlignmentFailure, Float> PENALTIES = new HashMap<>();
+    static {
+        final float fixWordScore = 1f;
+        SCORES.put(FIX_WORD, fixWordScore);
+        SCORES.put(NF_WORD, fixWordScore * 0.75f);
+        SCORES.put(GOOD_VALUE, fixWordScore * 0.5f);
+        SCORES.put(GOOD_TAG, fixWordScore * 0.5f);
+        PENALTIES.put(MISSING_FIX_WORD, fixWordScore);
+        PENALTIES.put(MISSING_NF_WORD, fixWordScore * 0.1f);
+        PENALTIES.put(EXTRA_FIX_WORD, fixWordScore * 0.35f);
+        PENALTIES.put(EXTRA_NF_WORD, fixWordScore * 0.1f);
+        PENALTIES.put(WRONG_VALUE_GOOD_TAG, fixWordScore * 0.8f);
+        PENALTIES.put(GOOD_VALUE_WRONG_TAG, fixWordScore * 0.5f);
+    }
 
-    public SearchPattern(final String query, final Komoran posTagger) {
-        String pattern = query;
-        for (KwAndRpl kwAndRpl : KEYWORDS_AND_REPLACEMENT) {
-            pattern = pattern.replace(kwAndRpl.keyword, kwAndRpl.replacement);
-        }
-        final KomoranResult analysis = posTagger.analyze(pattern);
-        final List<PosTag> queryTags = analysis.getList().stream()
+    public static List<PosTag> toSentence(final String raw, final Komoran posTagger) {
+        final KomoranResult analysis = posTagger.analyze(raw);
+        return analysis.getList().stream()
                 .map(e -> new PosTag(e.getFirst(), e.getSecond()))
                 .collect(Collectors.toList());
-        //TODO trouver une parade pour 이다
-        for (int i = 0; i < queryTags.size() - 1; i++) {
-            final PosTag qt = queryTags.get(i);
-            if(qt.type().equals("V") && queryTags.get(i + 1).equals("다")) {
-                queryTags.set(i + 1, new PosTag(
-                    getKeywordAndReplacement("<VENDING>").keyword, "SL"));
-            }
-        }
-        fixWords = queryTags.stream().filter(qt -> !qt.type().equals("S")).collect(Collectors.toList());
-        final SearchState start = new SearchState(-1, true);
-        final ArrayStack<List<SearchState>> forkStates = new ArrayStack<>(10);
-        final List<SearchState> statesToLink = newArrayList(start);
-        int index = 0;
-        for (PosTag queryTag : queryTags) {
-            if(queryTag.type().equals("SL")) {
-                final String keyword = getKeywordFromReplacement(queryTag.value()).orElse("");
-                String pos_tag_to_match = null;
-                switch (keyword) {
-                    case "<VSTEM>": pos_tag_to_match = "VSTEM"; break;
-                    case "<ADJSTEM>": pos_tag_to_match = "ADJSTEM"; break;
-                    case "<NSTEM>": pos_tag_to_match = "NSTEM"; break;
-                    case "<VENDING>":
-                        for (SearchState searchState : statesToLink) {
-                            searchState.addTransition(searchState, null, "VENDING");
-                        }
-                        break;
-                    case "<WORDS>":
-                        for (SearchState searchState : statesToLink) {
-                            searchState.addTransition(searchState, null, "WORDS");
-                        }
-                        break;
-                    case "(":
-                        forkStates.push(statesToLink);
-                        break;
-                    case ")":
-                        statesToLink.addAll(forkStates.pop());
-                        break;
-                }
-                if(pos_tag_to_match != null) {
-                    var newState = new SearchState(index);
-                    index++;
-                    for (SearchState searchState : statesToLink) {
-                        searchState.addTransition(searchState, null, pos_tag_to_match);
-                    }
-                    statesToLink.clear();
-                    statesToLink.add(newState);
-                }
-            } else {
-                var newState = new SearchState(index);
-                index++;
-                for (SearchState stateToLink : statesToLink) {
-                    stateToLink.addTransition(newState, queryTag.value(), queryTag.value());
-                }
-                statesToLink.clear();
-                statesToLink.add(newState);
-            }
-        }
-        stateMachine = start;
     }
 
-    public boolean matches(final List<PosTag> taggedSentences) {
-        for (int i = 0; i < taggedSentences.size(); i++) {
-            if(matches(taggedSentences, i)); {
-                return true;
+    public static Multimap<PosTag, IndexEntry> index(final List<List<PosTag>> corpus) {
+        final Multimap<PosTag, IndexEntry> db = HashMultimap.create();
+        for (int i = 0; i < corpus.size(); i++) {
+            final List<PosTag> sentence = corpus.get(i);
+            for (int indexTag = 0; indexTag < sentence.size(); indexTag++) {
+                final PosTag posTag = sentence.get(indexTag);
+                db.put(posTag, new IndexEntry(i, indexTag));
             }
         }
-        return false;
+        return db;
     }
-    public boolean matches(final List<PosTag> taggedSentences, final int start) {
-        var currStates = newArrayList(this.stateMachine);
-        for(int i = start; i < taggedSentences.size(); i++) {
-            final var lemme = taggedSentences.get(i);
-            final Map<Integer, SearchState> newStates = new HashMap<>();
-            for (SearchState currState : currStates) {
-                for (SearchStateTransition transition : currState.getTransitions()) {
-                    final var newState = transition.newState();
-                    if(!newStates.containsKey(newState.getIndex()) && transition.canLemmeTransit(lemme)) {
-                        if(newState.isFinal()) {
-                            return true;
+
+
+    public static List<Integer> findFixMatches(final List<PosTag> analyzedQuery,
+                                      final Multimap<PosTag, IndexEntry> index,
+                                      final float minSimilarity) {
+        final Map<Integer, Integer> countBySentenceInCorpus = new HashMap<>();
+        for (PosTag posTag : analyzedQuery) {
+            for (IndexEntry indexEntry : index.get(posTag)) {
+                countBySentenceInCorpus.compute(indexEntry.sentenceIndex(), (k,v) -> v == null ? 1 : v + 1);
+            }
+        }
+        final int minScore = (int)Math.floor(analyzedQuery.size() * minSimilarity);
+        return countBySentenceInCorpus.entrySet().stream().filter(e -> e.getValue() >= minScore)
+            .sorted((e1, e2) -> e2.getValue() - e1.getValue())
+            .map(Map.Entry::getKey)
+            .collect(Collectors.toList());
+    }
+
+    public static List<IndexWithScoreAndZone> scoreSentencesAgainstQuery(
+            List<PosTag> analyzedQuery, List<Integer> candidates,
+            List<List<PosTag>> corpus) {
+        return candidates.stream().map(candidateIndex -> {
+            final List<PosTag> candidate = corpus.get(candidateIndex);
+            // 1. they should all be in the same order
+            // 2. we lose points according to PENALTIES
+            float score = 0;
+            int lastPositionInCandidate = -1;
+            int start = -1;
+            for (PosTag queryLemme : analyzedQuery) {
+                boolean found = false;
+                for(int i = lastPositionInCandidate + 1; i < candidate.size() && !found; i ++) {
+                    final PosTag analyzedLemme = candidate.get(i);
+                    final Optional<AlignmentFailure> maybeFailure = getAlignementFailure(queryLemme, analyzedLemme);
+                    if(maybeFailure.isPresent()) {
+                        // For now we stop at the first possible value
+                        AlignmentFailure failure = maybeFailure.get();
+                        if(failure.equals(WRONG_VALUE_GOOD_TAG) || failure.equals(GOOD_VALUE_WRONG_TAG)) {
+                            score -= PENALTIES.getOrDefault(maybeFailure.get(), 0f);
+                            for(int j = lastPositionInCandidate + 1; j < i; j++) {
+                                PosTag extra = candidate.get(j);
+                                if(isFix(extra)) {
+                                    score -= PENALTIES.get(EXTRA_FIX_WORD);
+                                } else {
+                                    score -= PENALTIES.get(EXTRA_NF_WORD);
+                                }
+                            }
+                            found = true;
+                            lastPositionInCandidate = i;
+                            if(start == - 1) {
+                                start = i;
+                            }
                         }
-                        newStates.put(newState.getIndex(), newState);
+                    } else {
+                        found = true;
+                        for(int j = lastPositionInCandidate + 1; j < i; j++) {
+                            PosTag extra = candidate.get(j);
+                            if(isFix(extra)) {
+                                score -= PENALTIES.get(EXTRA_FIX_WORD);
+                            } else {
+                                score -= PENALTIES.get(EXTRA_NF_WORD);
+                            }
+                        }
+                        lastPositionInCandidate = i;
+                        if(start == - 1) {
+                            start = i;
+                        }
                     }
                 }
+                if(found) {
+                    score +=  isFix(queryLemme) ? SCORES.get(FIX_WORD) : SCORES.get(NF_WORD);
+                } else {
+                    score -= PENALTIES.get(isFix(queryLemme) ? MISSING_FIX_WORD : MISSING_NF_WORD);
+                }
             }
-            currStates = new ArrayList<>(newStates.values());
-            if(currStates.isEmpty()) {
-                return false;
+            return new IndexWithScoreAndZone(candidateIndex, score, start, lastPositionInCandidate);
+        })
+        .collect(Collectors.toList());
+    }
+
+    public static float getMaxScore(List<PosTag> analyzedQuery) {
+        return (float)analyzedQuery.stream().mapToDouble(pt -> isFix(pt) ? SCORES.get(FIX_WORD) : SCORES.get(NF_WORD))
+                .sum();
+    }
+
+    public static boolean isFix(PosTag extra) {
+        final String type = extra.type();
+        if(type.startsWith("S") || type.equals("EP") || type.equals("EC")) {
+            return false;
+        }
+        return true;
+    }
+
+    private static Optional<AlignmentFailure> getAlignementFailure(PosTag queryLemme, PosTag analyzedLemme) {
+        final Optional<AlignmentFailure> failure;
+        if(queryLemme.value().equals(analyzedLemme.value())) {
+            if(queryLemme.type().equals(analyzedLemme.type())) {
+                failure = Optional.empty();
+            } else {
+                failure = Optional.of(GOOD_VALUE_WRONG_TAG);
+            }
+        } else {
+            if(queryLemme.type().equals(analyzedLemme.type())) {
+                failure = Optional.of(WRONG_VALUE_GOOD_TAG);
+            } else {
+                if(isFix(queryLemme)) {
+                    failure = Optional.of(MISSING_FIX_WORD);
+                } else {
+                    failure = Optional.of(MISSING_NF_WORD);
+                }
             }
         }
-        return false;
+        return failure;
     }
 
     private Optional<String> getKeywordFromReplacement(String rpl) {
@@ -144,11 +194,6 @@ public class SearchPattern {
         }
         return new KwAndRpl(keyword, replacement);
     }
-
-    public List<PosTag> getFixWords() {
-        return this.fixWords;
-    }
-
 
     public static record KwAndRpl(String keyword, String replacement){}
 }
