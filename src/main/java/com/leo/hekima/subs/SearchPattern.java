@@ -7,10 +7,7 @@ import kr.co.shineware.nlp.komoran.model.KomoranResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import static com.google.common.collect.Lists.newArrayList;
@@ -77,6 +74,8 @@ public class SearchPattern {
             .collect(Collectors.toList());
     }
 
+    private record SavePoint(int positionInQuery, int lastPositionInCandidate, float score, int start){}
+
     public static List<IndexWithScoreAndZone> scoreSentencesAgainstQuery(
             List<PosTag> analyzedQuery, List<Integer> candidates,
             List<List<PosTag>> corpus) {
@@ -84,56 +83,71 @@ public class SearchPattern {
             final List<PosTag> candidate = corpus.get(candidateIndex);
             // 1. they should all be in the same order
             // 2. we lose points according to PENALTIES
-            float score = 0;
-            int lastPositionInCandidate = -1;
-            int start = -1;
-            for (PosTag queryLemme : analyzedQuery) {
-                boolean found = false;
-                for(int i = lastPositionInCandidate + 1; i < candidate.size() && !found; i ++) {
-                    final PosTag analyzedLemme = candidate.get(i);
-                    final Optional<AlignmentFailure> maybeFailure = getAlignementFailure(queryLemme, analyzedLemme);
-                    if(maybeFailure.isPresent()) {
-                        // For now we stop at the first possible value
-                        AlignmentFailure failure = maybeFailure.get();
-                        if(failure.equals(WRONG_VALUE_GOOD_TAG) || failure.equals(GOOD_VALUE_WRONG_TAG)) {
-                            score -= PENALTIES.getOrDefault(maybeFailure.get(), 0f);
-                            for(int j = lastPositionInCandidate + 1; j < i; j++) {
+            final Stack<SavePoint> savePoints = new Stack<>();
+            SavePoint bestScore = new SavePoint(-1, -1, Integer.MIN_VALUE, -1);
+            savePoints.push(new SavePoint(0, -1, 0f, -1));
+            while(!savePoints.empty()) {
+                final SavePoint savePoint = savePoints.pop();
+                float score = savePoint.score;
+                int lastPositionInCandidate = savePoint.lastPositionInCandidate;
+                int start = savePoint.start;
+                int positionInQuery = savePoint.positionInQuery;
+                for (int i = lastPositionInCandidate + 1; positionInQuery < analyzedQuery.size(); positionInQuery++) {
+                    PosTag queryLemme = analyzedQuery.get(positionInQuery);
+                    boolean found = false;
+                    for (; i < candidate.size() && !found; i++) {
+                        final PosTag analyzedLemme = candidate.get(i);
+                        final Optional<AlignmentFailure> maybeFailure = getAlignementFailure(queryLemme, analyzedLemme);
+                        if (maybeFailure.isPresent()) {
+                            // We will explore this possibility with a bad alignment and move on to the next lemme
+                            // BUT we save the failure for next time if there is something else to analyse
+                            if(positionInQuery < analyzedQuery.size() - 1) {
+                                savePoints.push(new SavePoint(positionInQuery + 1, lastPositionInCandidate, score - PENALTIES.get(isFix(queryLemme) ? MISSING_FIX_WORD : MISSING_NF_WORD), start));
+                            }
+                            AlignmentFailure failure = maybeFailure.get();
+                            if (failure.equals(WRONG_VALUE_GOOD_TAG) || failure.equals(GOOD_VALUE_WRONG_TAG)) {
+                                score -= PENALTIES.getOrDefault(maybeFailure.get(), 0f);
+                                for (int j = lastPositionInCandidate + 1; j < i; j++) {
+                                    PosTag extra = candidate.get(j);
+                                    if (isFix(extra)) {
+                                        score -= PENALTIES.get(EXTRA_FIX_WORD);
+                                    } else {
+                                        score -= PENALTIES.get(EXTRA_NF_WORD);
+                                    }
+                                }
+                                found = true;
+                                lastPositionInCandidate = i;
+                                if (start == -1) {
+                                    start = i;
+                                }
+                            }
+                        } else {
+                            found = true;
+                            for (int j = lastPositionInCandidate + 1; j < i; j++) {
                                 PosTag extra = candidate.get(j);
-                                if(isFix(extra)) {
+                                if (isFix(extra)) {
                                     score -= PENALTIES.get(EXTRA_FIX_WORD);
                                 } else {
                                     score -= PENALTIES.get(EXTRA_NF_WORD);
                                 }
                             }
-                            found = true;
                             lastPositionInCandidate = i;
-                            if(start == - 1) {
+                            if (start == -1) {
                                 start = i;
                             }
                         }
+                    }
+                    if (found) {
+                        score += isFix(queryLemme) ? SCORES.get(FIX_WORD) : SCORES.get(NF_WORD);
                     } else {
-                        found = true;
-                        for(int j = lastPositionInCandidate + 1; j < i; j++) {
-                            PosTag extra = candidate.get(j);
-                            if(isFix(extra)) {
-                                score -= PENALTIES.get(EXTRA_FIX_WORD);
-                            } else {
-                                score -= PENALTIES.get(EXTRA_NF_WORD);
-                            }
-                        }
-                        lastPositionInCandidate = i;
-                        if(start == - 1) {
-                            start = i;
-                        }
+                        score -= PENALTIES.get(isFix(queryLemme) ? MISSING_FIX_WORD : MISSING_NF_WORD);
                     }
                 }
-                if(found) {
-                    score +=  isFix(queryLemme) ? SCORES.get(FIX_WORD) : SCORES.get(NF_WORD);
-                } else {
-                    score -= PENALTIES.get(isFix(queryLemme) ? MISSING_FIX_WORD : MISSING_NF_WORD);
+                if(score > bestScore.score) {
+                    bestScore = new SavePoint(-1, lastPositionInCandidate, score, start);
                 }
             }
-            return new IndexWithScoreAndZone(candidateIndex, score, start, lastPositionInCandidate);
+            return new IndexWithScoreAndZone(candidateIndex, bestScore.score, bestScore.start, bestScore.lastPositionInCandidate);
         })
         .collect(Collectors.toList());
     }
