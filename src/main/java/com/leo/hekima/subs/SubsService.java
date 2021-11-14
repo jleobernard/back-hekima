@@ -3,6 +3,7 @@ package com.leo.hekima.subs;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import com.leo.hekima.exception.UnrecoverableServiceException;
+import com.leo.hekima.utils.RequestUtils;
 import com.leo.hekima.utils.StringUtils;
 import com.leo.hekima.utils.WebUtils;
 import com.opencsv.CSVReader;
@@ -25,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static com.leo.hekima.subs.SearchPattern.*;
 
@@ -76,15 +78,18 @@ public class SubsService {
 
     public Mono<ServerResponse> search(final ServerRequest serverRequest) {
         final String query = serverRequest.queryParam("q").orElse("");
-        final float minSimilarity = Float.parseFloat(serverRequest.queryParam("sim").orElse("0.75"));
+        final float minSimilarity = Float.parseFloat(serverRequest.queryParam("minSim").orElse("0.75"));
+        final float maxSimilarity = Float.parseFloat(serverRequest.queryParam("maxSim").orElse("1"));
+        final boolean excludeMax = Boolean.parseBoolean(serverRequest.queryParam("exclMax").orElse("false"));
         logger.info("Looking for {}", query);
         final List<PosTag> analyzedQuery = toSentence(query, komoran);
         final float minScore = getMaxScore(analyzedQuery) * minSimilarity;
+        final float maxScore = getMaxScore(analyzedQuery) * maxSimilarity;
         final List<Integer> firstCandidates = findFixMatches(analyzedQuery, this.db, minSimilarity);
         final List<IndexWithScoreAndZone> matches = scoreSentencesAgainstQuery(analyzedQuery, firstCandidates,
                 this.corpus.stream().map(SubsDbEntry::tags).collect(Collectors.toList()));
         final List<SubsEntryView> results = matches.stream()
-        .filter(m -> m.score() >= minScore)
+        .filter(m -> m.score() >= minScore && (excludeMax ? m.score() < maxScore : m.score() <= maxScore))
         .sorted((m1, m2) -> {
             float delta = m2.score() - m1.score();
             if(delta < 0) {
@@ -151,5 +156,18 @@ public class SubsService {
             }
         }
         return db;
+    }
+
+    public Mono<ServerResponse> autocomplete(ServerRequest serverRequest) {
+        final String query = serverRequest.queryParam("q").orElse("");
+        final int count = RequestUtils.getCount(serverRequest);
+        final int offset = RequestUtils.getOffset(serverRequest);
+        final Stream<SubsDbEntry> hints;
+        if(query.equals("")) {
+            hints = corpus.stream();
+        } else {
+            hints = corpus.stream().filter(c -> c.subs().contains(query));
+        }
+        return WebUtils.ok().bodyValue(hints.distinct().skip(offset).limit(count).map(SubsDbEntry::subs).collect(Collectors.toList()));
     }
 }

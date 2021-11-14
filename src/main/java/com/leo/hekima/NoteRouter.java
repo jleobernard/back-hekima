@@ -23,57 +23,16 @@ public class NoteRouter {
                                                 final TagService tagService,
                                                 final SubsService subsService,
                                                 final UserService userService) {
-        return RouterFunctions
-                .route(GET("/api/user")
+        RouterFunction<ServerResponse> f = routeSubs(subsService);
+        f = routeNotes(noteService, f);
+        f = routeSources(sourceService, f);
+        return f.andRoute(
+                GET("/api/user")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         userService::me)
                 .andRoute(GET("/api/authentication:status")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         userService::me)
-                .andRoute(GET("/api/kosubs")
-                                .and(accept(MediaType.APPLICATION_JSON)),
-                        subsService::search)
-                .andRoute(GET("/api/kosubs:reload")
-                                .and(accept(MediaType.APPLICATION_JSON)),
-                        subsService::askReloadDb)
-                .andRoute(GET("/api/notes")
-                                .and(accept(MediaType.APPLICATION_JSON)),
-                        noteService::search)
-                .andRoute(POST("/api/notes")
-                                .and(contentType(MediaType.APPLICATION_JSON))
-                                .and(accept(MediaType.APPLICATION_JSON)),
-                        noteService::upsert)
-                .andRoute(POST("/api/notes/{uri}")
-                                .and(contentType(MediaType.APPLICATION_JSON))
-                                .and(accept(MediaType.APPLICATION_JSON)),
-                        noteService::upsert)
-                .andRoute(POST("/api/notes:parse").and(contentType(MediaType.MULTIPART_FORM_DATA)).and(accept(MediaType.APPLICATION_JSON)),
-                noteService::parseNote)
-                .andRoute(DELETE("/api/notes/{uri}")
-                                .and(accept(MediaType.APPLICATION_JSON)),
-                        noteService::delete)
-                .andRoute(GET("/api/notes/{uri}")
-                                .and(accept(MediaType.APPLICATION_JSON)),
-                        noteService::findByUri)
-                .andRoute(POST("/api/notes/{uri}/files")
-                            .and(contentType(MediaType.MULTIPART_FORM_DATA))
-                            .and(accept(MediaType.APPLICATION_JSON)),
-                        noteService::patchFiles)
-                .andRoute(GET("/api/notes/{uri}/files/{fileId}"),
-                        noteService::getFile)
-                .andRoute(GET("/api/sources")
-                                .and(accept(MediaType.APPLICATION_JSON)),
-                        sourceService::search)
-                .andRoute(GET("/api/sources/{uri}")
-                                .and(accept(MediaType.APPLICATION_JSON)),
-                        sourceService::findByUri)
-                .andRoute(POST("/api/sources")
-                    .and(contentType(MediaType.APPLICATION_JSON))
-                    .and(accept(MediaType.APPLICATION_JSON)),
-                        sourceService::upsert)
-                .andRoute(DELETE("/api/sources/{uri}")
-                        .and(accept(MediaType.APPLICATION_JSON)),
-                        sourceService::delete)
                 .andRoute(GET("/api/tags")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         tagService::search)
@@ -87,5 +46,54 @@ public class NoteRouter {
                 .andRoute(DELETE("/api/tags/{uri}")
                         .and(accept(MediaType.APPLICATION_JSON)),
                 tagService::delete);
+    }
+
+    private RouterFunction<ServerResponse> routeSubs(SubsService subsService) {
+        return RouterFunctions
+        .route(GET("/api/kosubs").and(accept(MediaType.APPLICATION_JSON)), subsService::search)
+        .andRoute(GET("/api/kosubs:reload").and(accept(MediaType.APPLICATION_JSON)), subsService::askReloadDb)
+        .andRoute(GET("/api/kosubs:autocomplete").and(accept(MediaType.APPLICATION_JSON)), subsService::autocomplete);
+    }
+    private RouterFunction<ServerResponse> routeSources(SourceService sourceService, RouterFunction<ServerResponse> f) {
+        return f.andRoute(GET("/api/sources")
+                    .and(accept(MediaType.APPLICATION_JSON)),
+            sourceService::search)
+            .andRoute(GET("/api/sources/{uri}")
+                            .and(accept(MediaType.APPLICATION_JSON)),
+                    sourceService::findByUri)
+            .andRoute(POST("/api/sources")
+                            .and(contentType(MediaType.APPLICATION_JSON))
+                            .and(accept(MediaType.APPLICATION_JSON)),
+                    sourceService::upsert)
+            .andRoute(DELETE("/api/sources/{uri}")
+                            .and(accept(MediaType.APPLICATION_JSON)),
+                    sourceService::delete);
+    }
+    private RouterFunction<ServerResponse> routeNotes(NoteService noteService, RouterFunction<ServerResponse> f) {
+        return f.andRoute(GET("/api/notes")
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        noteService::search)
+                .andRoute(POST("/api/notes")
+                                .and(contentType(MediaType.APPLICATION_JSON))
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        noteService::upsert)
+                .andRoute(POST("/api/notes/{uri}")
+                                .and(contentType(MediaType.APPLICATION_JSON))
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        noteService::upsert)
+                .andRoute(POST("/api/notes:parse").and(contentType(MediaType.MULTIPART_FORM_DATA)).and(accept(MediaType.APPLICATION_JSON)),
+                        noteService::parseNote)
+                .andRoute(DELETE("/api/notes/{uri}")
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        noteService::delete)
+                .andRoute(GET("/api/notes/{uri}")
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        noteService::findByUri)
+                .andRoute(POST("/api/notes/{uri}/files")
+                                .and(contentType(MediaType.MULTIPART_FORM_DATA))
+                                .and(accept(MediaType.APPLICATION_JSON)),
+                        noteService::patchFiles)
+                .andRoute(GET("/api/notes/{uri}/files/{fileId}"),
+                        noteService::getFile);
     }
 }
