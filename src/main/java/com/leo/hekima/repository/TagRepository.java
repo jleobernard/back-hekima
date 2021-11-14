@@ -19,9 +19,9 @@ public interface TagRepository extends ReactiveCrudRepository<TagModel, Long> {
             SELECT tag.*
             FROM tag
             LEFT JOIN note_tag ON note_tag.tag_id = tag.id
-            WHERE note_tag.note_id = :noteId
+            WHERE note_tag.note_id = :noteid
             """)
-    Flux<TagModel> findByNoteId(@Param("noteId") final Long noteId);
+    Flux<TagModel> findByNoteId(@Param("noteid") final Long noteId);
 
     Mono<Void> deleteByUri(String uri);
 }

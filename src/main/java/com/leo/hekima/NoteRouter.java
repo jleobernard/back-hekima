@@ -1,9 +1,6 @@
 package com.leo.hekima;
 
-import com.leo.hekima.handler.NoteService;
-import com.leo.hekima.handler.SourceService;
-import com.leo.hekima.handler.TagService;
-import com.leo.hekima.handler.UserService;
+import com.leo.hekima.handler.*;
 import com.leo.hekima.subs.SubsService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,10 +19,12 @@ public class NoteRouter {
                                                 final SourceService sourceService,
                                                 final TagService tagService,
                                                 final SubsService subsService,
-                                                final UserService userService) {
+                                                final UserService userService,
+                                                final QuizzService quizzService) {
         RouterFunction<ServerResponse> f = routeSubs(subsService);
         f = routeNotes(noteService, f);
         f = routeSources(sourceService, f);
+        f = routeQuizz(quizzService, f);
         return f.andRoute(
                 GET("/api/user")
                                 .and(accept(MediaType.APPLICATION_JSON)),
@@ -68,6 +67,11 @@ public class NoteRouter {
             .andRoute(DELETE("/api/sources/{uri}")
                             .and(accept(MediaType.APPLICATION_JSON)),
                     sourceService::delete);
+    }
+    private RouterFunction<ServerResponse> routeQuizz(QuizzService quizzService, RouterFunction<ServerResponse> f) {
+        return f
+            .andRoute(GET("/api/quizz:generate") .and(accept(MediaType.APPLICATION_JSON)), quizzService::generate)
+            .andRoute(POST("/api/quizz:answer") .and(accept(MediaType.APPLICATION_JSON)), quizzService::answer);
     }
     private RouterFunction<ServerResponse> routeNotes(NoteService noteService, RouterFunction<ServerResponse> f) {
         return f.andRoute(GET("/api/notes")
