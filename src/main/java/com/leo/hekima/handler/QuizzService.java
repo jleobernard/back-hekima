@@ -17,12 +17,11 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Set;
 
 import static com.leo.hekima.utils.ReactiveUtils.optionalEmptyDeferred;
 import static com.leo.hekima.utils.RequestUtils.getCount;
+import static com.leo.hekima.utils.RequestUtils.getStringSet;
 import static org.apache.commons.collections4.CollectionUtils.isEmpty;
 import static org.springframework.web.reactive.function.BodyExtractors.toMono;
 
@@ -30,12 +29,11 @@ import static org.springframework.web.reactive.function.BodyExtractors.toMono;
 public class QuizzService {
     private final NoteQuizzHistoryRepository noteQuizzHistoryRepository;
     private final NoteRepository noteRepository;
-    private final ConnectionFactory connectionFactory;
 
-    public QuizzService(NoteQuizzHistoryRepository noteQuizzHistoryRepository, NoteRepository noteRepository, ConnectionFactory connectionFactory) {
+    public QuizzService(NoteQuizzHistoryRepository noteQuizzHistoryRepository,
+                        NoteRepository noteRepository) {
         this.noteQuizzHistoryRepository = noteQuizzHistoryRepository;
         this.noteRepository = noteRepository;
-        this.connectionFactory = connectionFactory;
     }
 
     public record NoteAndHistory(NoteSummary note, NoteQuizzHistoryModel history){}
@@ -75,12 +73,6 @@ public class QuizzService {
                 .take(count)
                 .map(n -> new ElementSummaryView(n.note.noteuri(), StringUtils.substring(n.note.valeur(), 0, 20)));
         return WebUtils.ok().body(notesAndHistory, ElementSummaryView.class);
-    }
-
-    private Set<String> getStringSet(ServerRequest serverRequest, String name) {
-        return serverRequest.queryParam(name)
-            .map(raw -> new HashSet<>(Arrays.asList(raw.split(","))))
-            .orElseGet(HashSet::new);
     }
 
     public Mono<ServerResponse> answer(ServerRequest serverRequest) {

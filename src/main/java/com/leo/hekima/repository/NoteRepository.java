@@ -52,4 +52,27 @@ public interface NoteRepository extends ReactiveCrudRepository<NoteModel, Long> 
             ORDER BY n.id
             """)
     Flux<NoteSummary> findAllBySourceInOrTagsIn(@Param("sources") Set<String> sources, @Param("tags") Set<String> tags);
+
+    @Query("""
+            SELECT count(DISTINCT n.id) FROM note n
+            LEFT JOIN note_tag nt ON n.id = nt.note_id
+            LEFT JOIN tag t ON nt.tag_id = t.id
+            WHERE t.uri IN (:tags)
+            """)
+    Mono<Long> countByTagsIn(@Param("tags") Set<String> tags);
+    @Query("""
+            SELECT count(DISTINCT n.id) FROM note n
+            LEFT JOIN note_source s ON n.source_id = s.id
+            WHERE s.uri IN (:sources)
+            """)
+    Mono<Long> countBySourceIn(@Param("sources") Set<String> sources);
+    @Query("""
+            SELECT COUNT(DISTINCT n.id) FROM note n
+            LEFT JOIN note_source s ON n.source_id = s.id
+            LEFT JOIN note_tag nt ON n.id = nt.note_id
+            LEFT JOIN tag t ON nt.tag_id = t.id
+            WHERE s.uri IN (:sources)
+               OR t.uri IN (:tags)
+            """)
+    Mono<Long> countBySourceInOrTagsIn(@Param("sources") Set<String> sources, @Param("tags") Set<String> tags);
 }

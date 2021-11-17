@@ -17,6 +17,7 @@ import com.leo.hekima.utils.JsonUtils;
 import com.leo.hekima.utils.StringUtils;
 import com.leo.hekima.utils.WebUtils;
 import io.r2dbc.spi.ConnectionFactory;
+import org.apache.commons.collections4.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -50,6 +51,7 @@ import java.util.stream.Collectors;
 import static com.leo.hekima.handler.UserService.getAuthentication;
 import static com.leo.hekima.utils.ReactiveUtils.optionalEmptyDeferred;
 import static com.leo.hekima.utils.ReactiveUtils.orEmptyList;
+import static com.leo.hekima.utils.RequestUtils.getStringSet;
 import static com.leo.hekima.utils.WebUtils.getPageAndSort;
 import static org.springframework.util.CollectionUtils.isEmpty;
 import static org.springframework.web.reactive.function.BodyExtractors.toMono;
@@ -98,6 +100,21 @@ public class NoteService {
             throw new UnrecoverableServiceException("Data dir path " + dataDirPath + " is not writable");
         }
         initVision();
+    }
+
+    @Transactional(readOnly = true)
+    public Mono<ServerResponse> count(ServerRequest serverRequest) {
+        final Set<String> tags = getStringSet(serverRequest, "tags");
+        final Set<String> sources = getStringSet(serverRequest, "sources");final boolean emptyTags = CollectionUtils.isEmpty(tags);
+        final boolean emptySources = CollectionUtils.isEmpty(sources);
+        final Mono<Long> countNotes;
+        if (emptySources) {
+            countNotes = emptyTags ? noteRepository.count() : noteRepository.countByTagsIn(tags);
+        } else {
+            countNotes = emptyTags ? noteRepository.countBySourceIn(sources) :
+                    noteRepository.countBySourceInOrTagsIn(sources, tags);
+        }
+        return WebUtils.ok().body(countNotes, Long.class);
     }
 
     @Transactional(readOnly = true)
