@@ -16,26 +16,27 @@ import static com.leo.hekima.subs.AlignmentSuccess.*;
 
 public class SearchPattern {
     private static final Logger logger = LoggerFactory.getLogger(SearchPattern.class);
-    public static final List<String> POS_TAG_NOT_WORD = newArrayList(
-            "SC", "SE", "SF", "SSC", "SSO");
     public static final List<String> KEYWORDS = newArrayList(
             "<VSTEM>", "<ADJSTEM>", "≤NSTEM>", "<WORDS>", "<WORD>", "<VENDING>", "(", ")");
-    public static final List<KwAndRpl> KEYWORDS_AND_REPLACEMENT = KEYWORDS.stream().map(SearchPattern::getKeywordAndReplacement).collect(Collectors.toList());;
+    public static final List<KwAndRpl> KEYWORDS_AND_REPLACEMENT = KEYWORDS.stream().map(SearchPattern::getKeywordAndReplacement).collect(Collectors.toList());
 
     private static final Map<AlignmentSuccess, Float> SCORES = new HashMap<>();
     private static final Map<AlignmentFailure, Float> PENALTIES = new HashMap<>();
     static {
         final float fixWordScore = 1f;
         SCORES.put(FIX_WORD, fixWordScore);
-        SCORES.put(NF_WORD, fixWordScore * 0.75f);
-        SCORES.put(GOOD_VALUE, fixWordScore * 0.5f);
+        SCORES.put(NF_WORD, fixWordScore * 0.5f);
+        SCORES.put(GOOD_FIX_VALUE, fixWordScore * 0.75f);
+        SCORES.put(GOOD_NF_VALUE, fixWordScore * 0.25f);
         SCORES.put(GOOD_TAG, fixWordScore * 0.5f);
         PENALTIES.put(MISSING_FIX_WORD, fixWordScore);
         PENALTIES.put(MISSING_NF_WORD, fixWordScore * 0.1f);
         PENALTIES.put(EXTRA_FIX_WORD, fixWordScore * 0.35f);
         PENALTIES.put(EXTRA_NF_WORD, fixWordScore * 0.1f);
-        PENALTIES.put(WRONG_VALUE_GOOD_TAG, fixWordScore * 0.8f);
-        PENALTIES.put(GOOD_VALUE_WRONG_TAG, fixWordScore * 0.5f);
+        PENALTIES.put(WRONG_FIX_VALUE_GOOD_TAG, fixWordScore * 0.8f);
+        PENALTIES.put(GOOD_FIX_VALUE_WRONG_TAG, fixWordScore * 0.1f);
+        PENALTIES.put(WRONG_NF_VALUE_GOOD_TAG, fixWordScore * 0.1f);
+        PENALTIES.put(GOOD_NF_VALUE_WRONG_TAG, fixWordScore * 0.5f);
     }
 
     public static List<PosTag> toSentence(final String raw, final Komoran posTagger) {
@@ -97,38 +98,44 @@ public class SearchPattern {
                 int start = savePoint.start;
                 int positionInQuery = savePoint.positionInQuery;
                 boolean hasStarted = savePoint.hasStarted;
-                for (int i = lastPositionInCandidate + 1; positionInQuery < analyzedQuery.size(); positionInQuery++) {
+                int i = lastPositionInCandidate + 1;
+                for (; positionInQuery < analyzedQuery.size(); positionInQuery++) {
                     PosTag queryLemme = analyzedQuery.get(positionInQuery);
                     boolean found = false;
                     for (; i < candidate.size() && !found; i++) {
                         final PosTag analyzedLemme = candidate.get(i);
                         final Optional<AlignmentFailure> maybeFailure = getAlignementFailure(queryLemme, analyzedLemme);
                         if (maybeFailure.isPresent()) {
+                            AlignmentFailure failure = maybeFailure.get();
                             // We will explore this possibility with a bad alignment and move on to the next lemme
                             // BUT we save the failure for next time if there is something else to analyse
                             if(positionInQuery < analyzedQuery.size() - 1) {
                                 savePoints.push(new SavePoint(positionInQuery + 1, lastPositionInCandidate, score - PENALTIES.get(isFix(queryLemme) ? MISSING_FIX_WORD : MISSING_NF_WORD), start, true));
-                                if(!hasStarted) {
-                                    savePoints.push(new SavePoint(positionInQuery + 1, positionInQuery, 0, start, false));
+                            }
+                            if(!hasStarted) {
+                                // If we haven't started yet to recognize the query we will skip to the next position
+                                // with no penalty
+                                savePoints.push(new SavePoint(0, i, 0, -1, false));
+                            }
+                            score -= PENALTIES.getOrDefault(failure, 0f);
+                            switch (failure) {
+                                case GOOD_FIX_VALUE_WRONG_TAG -> score += SCORES.getOrDefault(GOOD_FIX_VALUE, 0f);
+                                case GOOD_NF_VALUE_WRONG_TAG -> score += SCORES.getOrDefault(GOOD_NF_VALUE, 0f);
+                                case WRONG_FIX_VALUE_GOOD_TAG, WRONG_NF_VALUE_GOOD_TAG -> score += SCORES.getOrDefault(GOOD_TAG, 0f);
+                            }
+                            hasStarted = true;
+                            for (int j = lastPositionInCandidate + 1; j < i; j++) {
+                                PosTag extra = candidate.get(j);
+                                if (isFix(extra)) {
+                                    score -= PENALTIES.get(EXTRA_FIX_WORD);
+                                } else {
+                                    score -= PENALTIES.get(EXTRA_NF_WORD);
                                 }
                             }
-                            hasStarted = false;
-                            AlignmentFailure failure = maybeFailure.get();
-                            if (failure.equals(WRONG_VALUE_GOOD_TAG) || failure.equals(GOOD_VALUE_WRONG_TAG)) {
-                                score -= PENALTIES.getOrDefault(maybeFailure.get(), 0f);
-                                for (int j = lastPositionInCandidate + 1; j < i; j++) {
-                                    PosTag extra = candidate.get(j);
-                                    if (isFix(extra)) {
-                                        score -= PENALTIES.get(EXTRA_FIX_WORD);
-                                    } else {
-                                        score -= PENALTIES.get(EXTRA_NF_WORD);
-                                    }
-                                }
-                                found = true;
-                                lastPositionInCandidate = i;
-                                if (start == -1) {
-                                    start = i;
-                                }
+                            found = true;
+                            lastPositionInCandidate = i;
+                            if (start == -1) {
+                                start = i;
                             }
                         } else {
                             found = true;
@@ -147,12 +154,8 @@ public class SearchPattern {
                             if (start == -1) {
                                 start = i;
                             }
+                            score += isFix(queryLemme) ? SCORES.get(FIX_WORD) : SCORES.get(NF_WORD);
                         }
-                    }
-                    if (found) {
-                        score += isFix(queryLemme) ? SCORES.get(FIX_WORD) : SCORES.get(NF_WORD);
-                    } else {
-                        score -= PENALTIES.get(isFix(queryLemme) ? MISSING_FIX_WORD : MISSING_NF_WORD);
                     }
                 }
                 if(score > bestScore.score) {
@@ -171,23 +174,24 @@ public class SearchPattern {
 
     public static boolean isFix(PosTag extra) {
         final String type = extra.type();
-        if(type.startsWith("S") || type.equals("EP") || type.equals("EC")) {
-            return false;
-        }
-        return true;
+        char firstLetter = type.charAt(0);
+        return switch (firstLetter) {
+            case 'S', 'E', 'J', 'X' -> false;
+            default -> true;
+        };
     }
 
     private static Optional<AlignmentFailure> getAlignementFailure(PosTag queryLemme, PosTag analyzedLemme) {
         final Optional<AlignmentFailure> failure;
         if(queryLemme.value().equals(analyzedLemme.value())) {
-            if(queryLemme.type().equals(analyzedLemme.type())) {
+            if(sameType(queryLemme, analyzedLemme)) {
                 failure = Optional.empty();
             } else {
-                failure = Optional.of(GOOD_VALUE_WRONG_TAG);
+                failure = Optional.of(isFix(queryLemme) ? GOOD_FIX_VALUE_WRONG_TAG : GOOD_NF_VALUE_WRONG_TAG);
             }
         } else {
-            if(queryLemme.type().equals(analyzedLemme.type())) {
-                failure = Optional.of(WRONG_VALUE_GOOD_TAG);
+            if(sameType(queryLemme, analyzedLemme)) {
+                failure = Optional.of(isFix(queryLemme) ? WRONG_FIX_VALUE_GOOD_TAG : WRONG_NF_VALUE_GOOD_TAG);
             } else {
                 if(isFix(queryLemme)) {
                     failure = Optional.of(MISSING_FIX_WORD);
@@ -199,6 +203,10 @@ public class SearchPattern {
         return failure;
     }
 
+    private static boolean sameType(PosTag queryLemme, PosTag analyzedLemme) {
+        return queryLemme.type().charAt(0) == analyzedLemme.type().charAt(0);
+    }
+
     private Optional<String> getKeywordFromReplacement(String rpl) {
         return KEYWORDS_AND_REPLACEMENT.stream()
                 .filter(kar -> kar.replacement.equals(rpl))
@@ -206,20 +214,14 @@ public class SearchPattern {
         .findAny();
     }
 
-    private static final KwAndRpl getKeywordAndReplacement(final String keyword) {
-        final String replacement;
-        switch (keyword) {
-            case "(":
-                replacement = "STARTCONDITIONAL";
-                break;
-            case ")":
-                replacement = "ENDCONDITIONAL";
-                break;
-            default:
-                replacement = keyword.substring(1, keyword.length() - 1) + "MMMM";
-        }
+    private static KwAndRpl getKeywordAndReplacement(final String keyword) {
+        final String replacement = switch (keyword) {
+            case "(" -> "STARTCONDITIONAL";
+            case ")" -> "ENDCONDITIONAL";
+            default -> keyword.substring(1, keyword.length() - 1) + "MMMM";
+        };
         return new KwAndRpl(keyword, replacement);
     }
 
-    public static record KwAndRpl(String keyword, String replacement){}
+    public record KwAndRpl(String keyword, String replacement){}
 }
