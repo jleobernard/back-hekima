@@ -140,6 +140,11 @@ public class NoteService {
                         .collect(Collectors.toList()))
                 .filter(l -> !l.isEmpty())
                 .ifPresent(s -> conditions.add("note.id IN (SELECT note_id FROM note_tag LEFT JOIN tag on tag.id = note_tag.tag_id WHERE tag.uri in ('" + String.join("','", s) + "'))"));
+            request.queryParam("q")
+                    .filter(StringUtils::isNotEmpty)
+                    .map(wordAnalyzer::getIndexableWords)
+                    .filter(l -> !l.isEmpty())
+                    .ifPresent(s -> conditions.add("note.id IN (SELECT note_id FROM note_word LEFT JOIN word on word.id = note_word.word_id WHERE word.word in ('" + String.join("','", s.stream().map(Word::word).collect(Collectors.toSet())) + "'))"));
             final StringBuilder sql = new StringBuilder("SELECT id, uri, valeur, created_at, source_id, files, subs from note ");
             if(!conditions.isEmpty()) {
                 sql.append(" WHERE ");
