@@ -1,4 +1,4 @@
-package com.leo.hekima.handler;
+package com.leo.hekima.service;
 
 import com.leo.hekima.model.TagModel;
 import com.leo.hekima.repository.TagRepository;

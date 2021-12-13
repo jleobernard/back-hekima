@@ -1,6 +1,6 @@
 package com.leo.hekima.configuration;
 
-import com.leo.hekima.handler.UserService;
+import com.leo.hekima.service.UserService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.authentication.UserDetailsRepositoryReactiveAuthenticationManager;

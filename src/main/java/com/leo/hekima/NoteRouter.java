@@ -1,6 +1,6 @@
 package com.leo.hekima;
 
-import com.leo.hekima.handler.*;
+import com.leo.hekima.service.*;
 import com.leo.hekima.subs.SubsService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

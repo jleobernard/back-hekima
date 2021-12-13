@@ -1,4 +1,4 @@
-package com.leo.hekima.handler;
+package com.leo.hekima.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.api.gax.core.FixedCredentialsProvider;
@@ -7,10 +7,8 @@ import com.google.cloud.vision.v1.*;
 import com.google.protobuf.ByteString;
 import com.leo.hekima.exception.UnrecoverableServiceException;
 import com.leo.hekima.model.*;
-import com.leo.hekima.repository.NoteRepository;
-import com.leo.hekima.repository.NoteTagRepository;
-import com.leo.hekima.repository.SourceRepository;
-import com.leo.hekima.repository.TagRepository;
+import com.leo.hekima.model.Word;
+import com.leo.hekima.repository.*;
 import com.leo.hekima.to.*;
 import com.leo.hekima.utils.DataUtils;
 import com.leo.hekima.utils.JsonUtils;
@@ -48,7 +46,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static com.leo.hekima.handler.UserService.getAuthentication;
+import static com.leo.hekima.service.UserService.getAuthentication;
 import static com.leo.hekima.utils.ReactiveUtils.optionalEmptyDeferred;
 import static com.leo.hekima.utils.ReactiveUtils.orEmptyList;
 import static com.leo.hekima.utils.RequestUtils.getStringSet;
@@ -69,6 +67,9 @@ public class NoteService {
     private final String googleCredentialsPath;
     private ImageAnnotatorClient vision;
     private final WebClient webClient;
+    private final WordAnalyzer wordAnalyzer;
+    private final WordRepository wordRepository;
+    private final NoteWordRepository noteWordRepository;
     public static final TypeReference<List<NoteFilePatchAction>> TR_LIST_OF_ACTIONS = new TypeReference<>() {};
 
     public NoteService(NoteRepository noteRepository,
@@ -77,7 +78,7 @@ public class NoteService {
                        ConnectionFactory connectionFactory,
                        @Value("${google.credentials}") final String googleCredentialsPath,
                        @Value("${data.dir}") final String dataDirPath,
-                       @Value("${subs.videoclipper.url}") final String videoClipperUrl) {
+                       @Value("${subs.videoclipper.url}") final String videoClipperUrl, WordAnalyzer wordAnalyzer, WordRepository wordRepository, NoteWordRepository noteWordRepository) {
         this.noteRepository = noteRepository;
         this.noteTagRepository = noteTagRepository;
         this.tagRepository = tagRepository;
@@ -86,6 +87,9 @@ public class NoteService {
         this.dataDir = new File(dataDirPath);
         this.googleCredentialsPath = googleCredentialsPath;
         this.webClient = WebClient.create(videoClipperUrl);
+        this.wordAnalyzer = wordAnalyzer;
+        this.wordRepository = wordRepository;
+        this.noteWordRepository = noteWordRepository;
         if(!this.dataDir.exists()) {
             logger.info("Creating data directory {}", dataDirPath);
             if(!this.dataDir.mkdirs()) {
@@ -162,7 +166,7 @@ public class NoteService {
                             .orElseGet(NoteSubs::new)
                 )))
             ).flatMap(notes -> {
-                var uris = notes.stream().map(NoteModel::getUri).collect(Collectors.toList());
+                var uris = notes.stream().map(NoteModel::getUri).toList();
                 var transformers = notes.stream()
                     .map(this::toView)
                     .collect(Collectors.toList());
@@ -360,7 +364,10 @@ public class NoteService {
                 if(hekima.getId() == null) {
                     deletionTags = Mono.just(uriAndSource);
                 } else {
-                    deletionTags = noteRepository.deleteLinkWithTags(hekima.getId()).then(Mono.just(uriAndSource));
+                    deletionTags = Mono.zip(
+                        noteRepository.deleteLinkWithTags(hekima.getId()),
+                        noteRepository.deleteLinkWithWords(hekima.getId())
+                    ).then(Mono.just(uriAndSource));
                 }
                 return deletionTags;
             })
@@ -406,6 +413,7 @@ public class NoteService {
                     });
                     return noteRepository.save(note);
                 })
+                .flatMap(savedNote -> saveIndexedWords(savedNote, request))
                 .flatMap(savedNote ->
                     isEmpty(request.getTags()) ? Mono.just(savedNote) :
                         orEmptyList(tagRepository.findByUriIn(request.getTags()))
@@ -420,6 +428,36 @@ public class NoteService {
                 )
                 .flatMap(savedNote -> WebUtils.ok().body(toView(savedNote), NoteView.class));
             });
+    }
+
+    private Mono<NoteModel> saveIndexedWords(NoteModel savedNote, NoteUpsertRequest request) {
+        final Set<Word> indexableWordsWithLanguage = wordAnalyzer.getIndexableWords(request.getValeur());
+        final Set<String> indexableWords = indexableWordsWithLanguage.stream().map(Word::word).collect(Collectors.toSet());
+        return orEmptyList(wordRepository.findByWordIn(indexableWords))
+        .flatMap(listOfWordsInDb -> {
+            final var mapOfWordsInDb = listOfWordsInDb.stream().collect(Collectors.toMap(WordModel::getWord, w -> w));
+            final var wordsToCreateInDb = indexableWords.stream()
+                .filter(i -> ! mapOfWordsInDb.containsKey(i))
+                .map(i -> new WordModel(i, Language.FRENCH))
+                .collect(Collectors.toSet());
+            if(wordsToCreateInDb.isEmpty()) {
+                return Mono.just(listOfWordsInDb);
+            } else {
+                return orEmptyList(wordRepository.saveAll(wordsToCreateInDb)).map(saved -> {
+                    var concat = new ArrayList<>(listOfWordsInDb);
+                    concat.addAll(saved);
+                    return concat;
+                });
+            }
+        })
+        .flatMap(listOfWords -> {
+            final var links = listOfWords.stream().map(w -> new NoteWordModel(savedNote.getId(), w.getId())).collect(Collectors.toSet());
+            if(links.isEmpty()) {
+                return Mono.just(savedNote);
+            } else {
+                return noteWordRepository.saveAll(links).then(Mono.just(savedNote));
+            }
+        });
     }
 
     private File getDataFile(String fileId) {
@@ -523,4 +561,5 @@ public class NoteService {
                 return bytes;
             });
     }
+
 }

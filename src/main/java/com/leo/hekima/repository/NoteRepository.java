@@ -21,6 +21,12 @@ public interface NoteRepository extends ReactiveCrudRepository<NoteModel, Long> 
             """)
     Mono<Void> deleteLinkWithTags(@Param("noteid") Long id);
 
+    @Modifying
+    @Query("""
+            DELETE FROM note_word WHERE note_id = :noteid
+            """)
+    Mono<Void> deleteLinkWithWords(@Param("noteid") Long id);
+
     @Query("""
             SELECT n.id as noteid, n.uri as noteuri, n.created_at as createdat, n.valeur as valeur FROM note n
             """)
@@ -75,4 +81,5 @@ public interface NoteRepository extends ReactiveCrudRepository<NoteModel, Long> 
                OR t.uri IN (:tags)
             """)
     Mono<Long> countBySourceInOrTagsIn(@Param("sources") Set<String> sources, @Param("tags") Set<String> tags);
+
 }
