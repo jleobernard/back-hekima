@@ -54,6 +54,7 @@ import static com.leo.hekima.utils.WebUtils.getPageAndSort;
 import static org.springframework.util.CollectionUtils.isEmpty;
 import static org.springframework.web.reactive.function.BodyExtractors.toMono;
 import static org.springframework.web.reactive.function.server.ServerResponse.*;
+import static reactor.core.publisher.Mono.just;
 
 @Component
 public class NoteService {
@@ -418,7 +419,7 @@ public class NoteService {
                     });
                     return noteRepository.save(note);
                 })
-                .flatMap(savedNote -> saveIndexedWords(savedNote, request))
+                .flatMap(this::saveIndexedWords)
                 .flatMap(savedNote ->
                     isEmpty(request.getTags()) ? Mono.just(savedNote) :
                         orEmptyList(tagRepository.findByUriIn(request.getTags()))
@@ -435,34 +436,39 @@ public class NoteService {
             });
     }
 
-    private Mono<NoteModel> saveIndexedWords(NoteModel savedNote, NoteUpsertRequest request) {
-        final Set<Word> indexableWordsWithLanguage = wordAnalyzer.getIndexableWords(request.getValeur());
-        final Set<String> indexableWords = indexableWordsWithLanguage.stream().map(Word::word).collect(Collectors.toSet());
-        return orEmptyList(wordRepository.findByWordIn(indexableWords))
-        .flatMap(listOfWordsInDb -> {
-            final var mapOfWordsInDb = listOfWordsInDb.stream().collect(Collectors.toMap(WordModel::getWord, w -> w));
-            final var wordsToCreateInDb = indexableWords.stream()
-                .filter(i -> ! mapOfWordsInDb.containsKey(i))
-                .map(i -> new WordModel(i, Language.FRENCH))
-                .collect(Collectors.toSet());
-            if(wordsToCreateInDb.isEmpty()) {
-                return Mono.just(listOfWordsInDb);
+
+    @Transactional
+    public Mono<ServerResponse> reindex(ServerRequest serverRequest) {
+        return wordRepository.deleteAll()
+        .thenMany(noteRepository.findAll())
+        .flatMap(this::saveIndexedWords, 1)
+        .then(ok().bodyValue(AckResponse.OK));
+    }
+
+    private Mono<NoteModel> saveIndexedWords(NoteModel savedNote) {
+        final Set<Word> indexableWordsWithLanguage = wordAnalyzer.getIndexableWords(savedNote.getValeur());
+        final Set<String> indexableWords = indexableWordsWithLanguage.stream()
+                .map(Word::word)
+                .map(w -> w.substring(0, Math.min(50, w.length()))).collect(Collectors.toSet());
+        return Flux.fromIterable(indexableWords)
+        .flatMap(word -> wordRepository.findByWord(word)
+                .switchIfEmpty(Mono.defer(() -> just(new WordModel(word, Language.FRENCH)))))
+        .collectList()
+        .flatMap(words -> {
+            final List<WordModel> toSave = words.stream().filter(w -> w.getId() == null).collect(Collectors.toList());
+            if(toSave.isEmpty()){
+                return just(words);
             } else {
-                return orEmptyList(wordRepository.saveAll(wordsToCreateInDb)).map(saved -> {
-                    var concat = new ArrayList<>(listOfWordsInDb);
-                    concat.addAll(saved);
-                    return concat;
-                });
+                return wordRepository.saveAll(toSave).then(just(words));
             }
         })
-        .flatMap(listOfWords -> {
-            final var links = listOfWords.stream().map(w -> new NoteWordModel(savedNote.getId(), w.getId())).collect(Collectors.toSet());
-            if(links.isEmpty()) {
-                return Mono.just(savedNote);
-            } else {
-                return noteWordRepository.saveAll(links).then(Mono.just(savedNote));
-            }
-        });
+        .flatMap(words -> noteWordRepository.saveAll(
+                words.stream()
+                    .map(w -> new NoteWordModel(savedNote.getId(), w.getId()))
+                    .collect(Collectors.toList())).then())
+        .then(Mono.defer(() -> {
+          return just(savedNote);
+        }));
     }
 
     private File getDataFile(String fileId) {
@@ -566,5 +572,4 @@ public class NoteService {
                 return bytes;
             });
     }
-
 }

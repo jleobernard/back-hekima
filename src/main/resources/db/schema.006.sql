@@ -1,6 +1,6 @@
 create table notes.word (
 id SERIAL PRIMARY KEY,
-word varchar(25) NOT NULL,
+word varchar(50) UNIQUE NOT NULL,
 language int NOT NULL);
 
 create table notes.note_word (
@@ -18,3 +18,6 @@ CONSTRAINT fk_note_word_word_id
 );
 CREATE INDEX note_word_note_id ON note_word USING btree (note_id);
 CREATE INDEX note_word_word_id ON note_word USING btree (word_id);
+
+ALTER TABLE notes.word ALTER COLUMN word TYPE  varchar(50);
+CREATE INDEX word_word_id ON word USING btree (word);

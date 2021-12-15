@@ -87,6 +87,8 @@ public class NoteRouter {
                         noteService::upsert)
                 .andRoute(GET("/api/notes:count").and(accept(MediaType.APPLICATION_JSON)),
                         noteService::count)
+                .andRoute(POST("/api/notes:reindex").and(accept(MediaType.APPLICATION_JSON)),
+                        noteService::reindex)
                 .andRoute(POST("/api/notes:parse").and(contentType(MediaType.MULTIPART_FORM_DATA)).and(accept(MediaType.APPLICATION_JSON)),
                         noteService::parseNote)
                 .andRoute(DELETE("/api/notes/{uri}")
