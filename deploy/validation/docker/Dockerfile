@@ -1,4 +1,4 @@
-FROM openjdk:16-slim
+FROM openjdk:17-slim
 VOLUME /tmp
 VOLUME /logs
 VOLUME /kosubs

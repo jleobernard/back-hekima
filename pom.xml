@@ -15,7 +15,7 @@
 	<description>Gestion des notes</description>
 
 	<properties>
-		<java.version>16</java.version>
+		<java.version>17</java.version>
 		<bouncy.version>1.68</bouncy.version>
 	</properties>
 	<dependencyManagement>

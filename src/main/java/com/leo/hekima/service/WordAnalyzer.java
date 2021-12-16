@@ -12,12 +12,14 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.google.common.collect.Lists.newArrayList;
-import static org.apache.lucene.analysis.en.EnglishAnalyzer.ENGLISH_STOP_WORDS_SET;
-import static org.apache.lucene.analysis.fr.FrenchAnalyzer.DEFAULT_ARTICLES;
 
 @Service
 public class WordAnalyzer {
 
+    public static List<String> DEFAULT_ARTICLES = newArrayList(
+            "l", "m", "t", "qu", "n", "s", "j", "d", "c", "jusqu", "quoiqu", "lorsqu",
+            "puisqu"
+    );
     public static List<String> FRENCH_STOP_WORDS = newArrayList("au","aux","avec","ce","ces","dans","de","des","du","elle","en","et","eux","il","je","la","le","leur","lui","ma","mais","me","même","mes","moi","mon","ne","nos","notre","nous","on","ou","par","pas","pour","qu","que","qui","sa","se","ses","son","sur","ta","te","tes","toi","ton","tu","un","une","vos","votre","vous",
             "c","d","j","l","à","m","n","s","t","y","été","étée","étées","étés","étant","suis","es","est","sommes","êtes","sont","serai","seras","sera","serons","serez","seront","serais","serait","serions","seriez","seraient","étais","était","étions","étiez","étaient","fus","fut","fûmes","fûtes","furent","sois","soit","soyons","soyez","soient","fusse","fusses","fût","fussions","fussiez","fussent","ayant","eu","eue","eues","eus","ai","as","avons","avez","ont","aurai","auras","aura","aurons","aurez","auront","aurais","aurait","aurions","auriez","auraient","avais","avait","avions","aviez","avaient","eut","eûmes","eûtes","eurent","aie","aies","ait","ayons","ayez","aient","eusse","eusses","eût","eussions","eussiez","eussent","ceci","cela","celà","cet","cette","ici","ils","les","leurs","quel","quels","quelle","quelles","sans","soi");
     public static List<String> ENGLISH_STOP_WORDS = newArrayList("a", "an", "and", "are", "as", "at", "be", "but", "by",
@@ -43,9 +45,8 @@ public class WordAnalyzer {
 
     private static void removeUselessWords(Set<String> words) {
         DEFAULT_ARTICLES.forEach(words::remove);
-        ENGLISH_STOP_WORDS_SET.forEach(words::remove);
-        FRENCH_STOP_WORDS.forEach(words::remove);
         ENGLISH_STOP_WORDS.forEach(words::remove);
+        FRENCH_STOP_WORDS.forEach(words::remove);
     }
 
     private static Set<String> removeMarkupAndNonWords(String text) {

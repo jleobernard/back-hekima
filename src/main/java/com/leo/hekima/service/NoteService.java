@@ -6,14 +6,11 @@ import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.vision.v1.*;
 import com.google.protobuf.ByteString;
 import com.leo.hekima.exception.UnrecoverableServiceException;
-import com.leo.hekima.model.*;
 import com.leo.hekima.model.Word;
+import com.leo.hekima.model.*;
 import com.leo.hekima.repository.*;
 import com.leo.hekima.to.*;
-import com.leo.hekima.utils.DataUtils;
-import com.leo.hekima.utils.JsonUtils;
-import com.leo.hekima.utils.StringUtils;
-import com.leo.hekima.utils.WebUtils;
+import com.leo.hekima.utils.*;
 import io.r2dbc.spi.ConnectionFactory;
 import org.apache.commons.collections4.CollectionUtils;
 import org.slf4j.Logger;
@@ -571,5 +568,19 @@ public class NoteService {
                 }
                 return bytes;
             });
+    }
+
+    public Mono<ServerResponse> autoCompleteIndex(ServerRequest serverRequest) {
+        final int count = RequestUtils.getCount(serverRequest);
+        final int offset = RequestUtils.getOffset(serverRequest);
+        return serverRequest.queryParam("q")
+        .map(String::trim)
+        .filter(StringUtils::isNotEmpty)
+        .map(q ->
+            WebUtils.ok().body(wordRepository.findByWordLikeOrderedByLengthAsc(q.toLowerCase(Locale.FRENCH) + '%')
+                .skip(offset)
+                .take(count)
+                .collectList(), List.class)
+        ).orElseGet(() -> WebUtils.ok().bodyValue(new ArrayList<String>(0)));
     }
 }
