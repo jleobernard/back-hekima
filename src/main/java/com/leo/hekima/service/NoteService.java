@@ -48,6 +48,7 @@ import static com.leo.hekima.utils.ReactiveUtils.optionalEmptyDeferred;
 import static com.leo.hekima.utils.ReactiveUtils.orEmptyList;
 import static com.leo.hekima.utils.RequestUtils.getStringSet;
 import static com.leo.hekima.utils.WebUtils.getPageAndSort;
+import static java.lang.String.format;
 import static org.springframework.util.CollectionUtils.isEmpty;
 import static org.springframework.web.reactive.function.BodyExtractors.toMono;
 import static org.springframework.web.reactive.function.server.ServerResponse.*;
@@ -138,11 +139,13 @@ public class NoteService {
                         .collect(Collectors.toList()))
                 .filter(l -> !l.isEmpty())
                 .ifPresent(s -> conditions.add("note.id IN (SELECT note_id FROM note_tag LEFT JOIN tag on tag.id = note_tag.tag_id WHERE tag.uri in ('" + String.join("','", s) + "'))"));
-            request.queryParam("q")
+            final Set<Word> indexableWords = request.queryParam("q")
                     .filter(StringUtils::isNotEmpty)
                     .map(wordAnalyzer::getIndexableWords)
-                    .filter(l -> !l.isEmpty())
-                    .ifPresent(s -> conditions.add("note.id IN (SELECT note_id FROM note_word LEFT JOIN word on word.id = note_word.word_id WHERE word.word in ('" + String.join("','", s.stream().map(Word::word).collect(Collectors.toSet())) + "'))"));
+                    .filter(l -> !l.isEmpty()).orElse(Collections.emptySet());
+            if(!indexableWords.isEmpty()) {
+                conditions.add("note.id IN (SELECT note_id FROM note_word LEFT JOIN word on word.id = note_word.word_id WHERE word.word in ('" + String.join("','", indexableWords.stream().map(Word::word).collect(Collectors.toSet())) + "'))");
+            }
             final StringBuilder sql = new StringBuilder("SELECT id, uri, valeur, created_at, source_id, files, subs from note ");
             if(!conditions.isEmpty()) {
                 sql.append(" WHERE ");
@@ -171,9 +174,12 @@ public class NoteService {
             ).flatMap(notes -> {
                 var uris = notes.stream().map(NoteModel::getUri).toList();
                 var transformers = notes.stream()
-                    .map(this::toView)
-                    .collect(Collectors.toList());
-                return Mono.zip(transformers, aggregat -> Arrays.stream(aggregat).map(a -> (NoteView)a).collect(Collectors.toList()))
+                    .map(this::toView);
+                if(!indexableWords.isEmpty()) {
+                    transformers = transformers.map(view -> highlight(view, indexableWords));
+                }
+                final var transformed = transformers.collect(Collectors.toList());
+                return Mono.zip(transformed, aggregat -> Arrays.stream(aggregat).map(a -> (NoteView)a).collect(Collectors.toList()))
                     .map(unorderdNoteViews -> {
                         final List<NoteView> sorted = new ArrayList<>(unorderdNoteViews);
                         sorted.sort(Comparator.comparingInt(h -> uris.indexOf(h.uri())));
@@ -181,6 +187,16 @@ public class NoteService {
                     });
             });
             return WebUtils.ok().body(views, NoteView.class);
+        });
+    }
+
+    private Mono<NoteView> highlight(Mono<NoteView> noteViewMono, final Set<Word> highlights) {
+        return noteViewMono.map(view -> {
+            String highlighted = view.valeur();
+            for (Word highlight : highlights) {
+                highlighted = highlighted.replaceAll(highlight.word(), format("<span class='highlight'>%s</span>", highlight.word()));
+            }
+            return new NoteView(view.uri(), highlighted, view.tags(), view.source(), view.files(), view.subs());
         });
     }
 

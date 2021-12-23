@@ -29,6 +29,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.leo.hekima.subs.SearchPattern.*;
+import static org.apache.commons.lang3.ObjectUtils.isEmpty;
 
 @Component
 public class SubsService {
@@ -117,7 +118,8 @@ public class SubsService {
                     for (int i = 3; i < line.length - 1; i+=2) {
                         final String content = line[i];
                         if(StringUtils.isNotEmpty(content)) {
-                            tags.add(new PosTag(content, line[i + 1]));
+                            String type = line[i + 1];
+                            tags.add(new PosTag(content, isEmpty(type) ? "???" : type.trim()));
                         } else {
                             break;
                         }
@@ -152,7 +154,11 @@ public class SubsService {
             final List<PosTag> sentence = corpus.get(i).tags();
             for (int indexTag = 0; indexTag < sentence.size(); indexTag++) {
                 final PosTag posTag = sentence.get(indexTag);
-                db.put(posTag, new IndexEntry(i, indexTag));
+                if(isEmpty(posTag.type())) {
+                    logger.info("{} has no type", posTag);
+                } else {
+                    db.put(posTag, new IndexEntry(i, indexTag));
+                }
             }
         }
         return db;

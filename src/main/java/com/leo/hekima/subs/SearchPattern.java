@@ -204,7 +204,9 @@ public class SearchPattern {
     }
 
     private static boolean sameType(PosTag queryLemme, PosTag analyzedLemme) {
-        return queryLemme.type().charAt(0) == analyzedLemme.type().charAt(0);
+        return
+                queryLemme.type().charAt(0) ==
+                analyzedLemme.type().charAt(0);
     }
 
     private Optional<String> getKeywordFromReplacement(String rpl) {
