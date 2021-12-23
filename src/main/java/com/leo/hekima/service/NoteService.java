@@ -479,9 +479,7 @@ public class NoteService {
                 words.stream()
                     .map(w -> new NoteWordModel(savedNote.getId(), w.getId()))
                     .collect(Collectors.toList())).then())
-        .then(Mono.defer(() -> {
-          return just(savedNote);
-        }));
+        .then(Mono.defer(() -> just(savedNote)));
     }
 
     private File getDataFile(String fileId) {
