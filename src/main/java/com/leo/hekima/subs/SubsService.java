@@ -77,12 +77,18 @@ public class SubsService {
         this.db = db;
     }
 
+    public Mono<ServerResponse> explain(final ServerRequest serverRequest) {
+        final String query = serverRequest.queryParam("q").orElse("");
+        final List<PosTag> analyzedQuery = toSentence(query, komoran);
+        return WebUtils.ok().bodyValue(analyzedQuery);
+    }
+
     public Mono<ServerResponse> search(final ServerRequest serverRequest) {
         final String query = serverRequest.queryParam("q").orElse("");
         final float minSimilarity = Float.parseFloat(serverRequest.queryParam("minSim").orElse("0.75"));
         final float maxSimilarity = Float.parseFloat(serverRequest.queryParam("maxSim").orElse("1"));
         final boolean excludeMax = Boolean.parseBoolean(serverRequest.queryParam("exclMax").orElse("false"));
-        logger.info("Looking for {}", query);
+        logger.debug("Looking for {}", query);
         final List<PosTag> analyzedQuery = toSentence(query, komoran);
         final float minScore = getMaxScore(analyzedQuery) * minSimilarity;
         final float maxScore = getMaxScore(analyzedQuery) * maxSimilarity;

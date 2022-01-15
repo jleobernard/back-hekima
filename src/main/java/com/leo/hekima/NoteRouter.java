@@ -50,6 +50,7 @@ public class NoteRouter {
     private RouterFunction<ServerResponse> routeSubs(SubsService subsService) {
         return RouterFunctions
         .route(GET("/api/kosubs").and(accept(MediaType.APPLICATION_JSON)), subsService::search)
+        .andRoute(GET("/api/kosubs:explain").and(accept(MediaType.APPLICATION_JSON)), subsService::explain)
         .andRoute(GET("/api/kosubs:reload").and(accept(MediaType.APPLICATION_JSON)), subsService::askReloadDb)
         .andRoute(GET("/api/kosubs:autocomplete").and(accept(MediaType.APPLICATION_JSON)), subsService::autocomplete);
     }
