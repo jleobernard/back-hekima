@@ -182,4 +182,24 @@ public class SubsService {
         }
         return WebUtils.ok().bodyValue(hints.distinct().skip(offset).limit(count).map(SubsDbEntry::subs).collect(Collectors.toList()));
     }
+
+    public Mono<ServerResponse> text(ServerRequest serverRequest) {
+        final String videoName = serverRequest.pathVariable("videoName");
+        final float from = Float.parseFloat(serverRequest.queryParam("from").orElse(""));
+        final float to = Float.parseFloat(serverRequest.queryParam("to").orElse(""));
+        final List<SubsTextView> entries = corpus.stream().filter(entry -> videoName.equals(entry.videoName()))
+            .filter(entry -> {
+                var minBound = Math.max(from, entry.fromTs());
+                var maxBound = Math.min(to, entry.toTs());
+                return minBound <= maxBound;
+            })
+            .sorted((e1, e2) -> Float.compare(e1.fromTs(), e2.fromTs()))
+            .map(this::toText)
+            .toList();
+        return WebUtils.ok().bodyValue(entries);
+    }
+
+    private SubsTextView toText(final SubsDbEntry subsDbEntry) {
+        return new SubsTextView(subsDbEntry.subs(), subsDbEntry.fromTs(), subsDbEntry.toTs());
+    }
 }

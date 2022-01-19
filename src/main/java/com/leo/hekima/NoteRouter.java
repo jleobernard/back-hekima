@@ -52,7 +52,8 @@ public class NoteRouter {
         .route(GET("/api/kosubs").and(accept(MediaType.APPLICATION_JSON)), subsService::search)
         .andRoute(GET("/api/kosubs:explain").and(accept(MediaType.APPLICATION_JSON)), subsService::explain)
         .andRoute(GET("/api/kosubs:reload").and(accept(MediaType.APPLICATION_JSON)), subsService::askReloadDb)
-        .andRoute(GET("/api/kosubs:autocomplete").and(accept(MediaType.APPLICATION_JSON)), subsService::autocomplete);
+        .andRoute(GET("/api/kosubs:autocomplete").and(accept(MediaType.APPLICATION_JSON)), subsService::autocomplete)
+        .andRoute(GET("/api/kosubs/{videoName}/texts").and(accept(MediaType.APPLICATION_JSON)), subsService::text);
     }
     private RouterFunction<ServerResponse> routeSources(SourceService sourceService, RouterFunction<ServerResponse> f) {
         return f.andRoute(GET("/api/sources")
