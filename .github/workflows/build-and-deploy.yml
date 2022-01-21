@@ -28,7 +28,7 @@ jobs:
         distribution: 'temurin'
         cache: maven
     - name: Build
-      run: mvn -B -DskipTests -q clean package --file pom.xml
+      run: mvn -B -DskipTests -q clean install package --file pom.xml
     - name: Configure SSH
       run: |
         mkdir -p ~/.ssh/
