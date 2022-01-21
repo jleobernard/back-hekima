@@ -40,17 +40,17 @@ jobs:
         SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
         SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
     - name: Prepare target directory
-      run: ssh production "mkdir -p $FINAL_DIR"
+      run: ssh production "mkdir -p /opt/containers/back-hekima"
     - name: Deploy static resources for Docker
-      run: scp -r deploy/validation/* production:$FINAL_DIR
+      run: scp -r deploy/validation/* production:/opt/containers/back-hekima
     - name: Deploy jar
-      run: scp target/hekima.jar production:$FINAL_DIR/docker
+      run: scp target/hekima.jar production:/opt/containers/back-hekima/docker
     - name: Stop the server
-      run: ssh production "cd $FINAL_DIR && docker-compose down"
+      run: ssh production "cd /opt/containers/back-hekima && docker-compose down"
     - name: Check server stopped
       run: rc=$?; if [[ $rc != 0 ]]; then echo "Cannot stop container"; fi
     - name: Rebuild the image and start the server
-      run: ssh production "cd $FINAL_DIR && docker-compose up -d --build"
+      run: ssh production "cd /opt/containers/back-hekima && docker-compose up -d --build"
     - name: Last check
       run: rc=$?; if [[ $rc != 0 ]]; then echo "Cannot build container"; exit $rc; fi
       
