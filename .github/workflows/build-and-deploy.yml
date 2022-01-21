@@ -15,6 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+    - name: Set up prod conf file
+      run: echo "$PRODUCTION_CONF_FILE" > src/main/resources/application-validation.yml
+    - name: Set up fcm.json
+      run: echo "$PRODUCTION_FCM_FILE" > src/main/resources/secrets/fcm.json
+    - name: Set up laflemme.json
+      run: echo "$PRODUCTION_LAFLEMME_FILE" > src/main/resources/secrets/laflemme-3b669604d7e6.json
     - name: Set up JDK 17
       uses: actions/setup-java@v2
       with:
