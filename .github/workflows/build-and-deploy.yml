@@ -1,0 +1,55 @@
+# This workflow will build a Java project with Maven, and cache/restore any dependencies to improve the workflow execution time
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
+
+name: Build and deploy
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up JDK 17
+      uses: actions/setup-java@v2
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+    - name: Build
+      run: mvn -B package --file pom.xml
+    - name: Configure SSH
+      run: |
+        mkdir -p ~/.ssh/
+        echo "$SSH_KEY" > ~/.ssh/production.key
+        chmod 600 ~/.ssh/id_rsa
+        cat >>~/.ssh/config <<END
+        Host production
+          HostName $SSH_HOST
+          User $SSH_USER
+          IdentityFile ~/.ssh/production.key
+          StrictHostKeyChecking no
+        END
+      env:
+        SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+        SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+        SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+    - name: Prepare target directory
+      run: ssh production "mkdir -p $FINAL_DIR"
+    - name: Deploy static resources for Docker
+      run: scp -r deploy/validation/* production:$FINAL_DIR
+    - name: Deploy jar
+      run: scp target/hekima.jar production:$FINAL_DIR/docker
+    - name: Stop the server
+      run: ssh production "cd $FINAL_DIR && docker-compose down"
+    - name: Check server stopped
+      run: rc=$?; if [[ $rc != 0 ]]; then echo "Cannot stop container"; fi
+    - name: Rebuild the image and start the server
+      run: ssh production "cd $FINAL_DIR && docker-compose up -d --build"
+    - name: Last check
+      run: rc=$?; if [[ $rc != 0 ]]; then echo "Cannot build container"; exit $rc; fi
+      
