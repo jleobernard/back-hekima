@@ -26,7 +26,7 @@ jobs:
       run: |
         mkdir -p ~/.ssh/
         echo "$SSH_KEY" > ~/.ssh/production.key
-        chmod 600 ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/production.key
         cat >>~/.ssh/config <<END
         Host production
           HostName $SSH_HOST
