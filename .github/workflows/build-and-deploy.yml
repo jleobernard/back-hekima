@@ -12,7 +12,7 @@ on:
 
 jobs:
   configuration:
-    uses: jleobernard/actions/.github/workflows/reuse-add-ssh.yml@main
+    uses: ./.github/workflows/reuse-add-ssh.yml@main
     with:
       aliasname: 'production'
       user: 'debian'
