@@ -15,6 +15,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+    - uses: jleobernard/actions/.github/workflows/reuse-add-ssh.yml@master
+      with:
+        aliasname: 'production'
+        user: 'debian'
+        serverhost: '188.165.201.228'
+      secrets:
+        envSSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
     - name: Set up prod conf file
       run: |
         mkdir -p src/main/resources/secrets
@@ -28,23 +35,7 @@ jobs:
         distribution: 'temurin'
         cache: maven
     - name: Build
-      run: mvn -B -DskipTests -q clean install package --file pom.xml
-    - name: Configure SSH
-      run: |
-        mkdir -p ~/.ssh/
-        echo "$SSH_KEY" > ~/.ssh/production.key
-        chmod 600 ~/.ssh/production.key
-        cat >>~/.ssh/config <<END
-        Host production
-          HostName $SSH_HOST
-          User $SSH_USER
-          IdentityFile ~/.ssh/production.key
-          StrictHostKeyChecking no
-        END
-      env:
-        SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
-        SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
-        SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+      run: mvn -B -DskipTests -q package --file pom.xml
     - name: Prepare target directory
       run: ssh production "mkdir -p /opt/containers/back-hekima"
     - name: Deploy static resources for Docker
