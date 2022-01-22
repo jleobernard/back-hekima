@@ -11,19 +11,18 @@ on:
   workflow_dispatch:
 
 jobs:
-  configuration:
-    uses: jleobernard/back-hekima/.github/workflows/reuse-add-ssh.yml@main
-    with:
-      aliasname: 'production'
-      user: 'debian'
-      serverhost: '188.165.201.228'
-    secrets:
-      envSSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
   build:
     needs: configuration
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+    - uses: jleobernard/back-hekima/.github/actions/add-ssh.yml@main
+      with:
+        aliasname: 'production'
+        user: 'debian'
+        serverhost: '188.165.201.228'
+      secrets:
+        envSSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
     - name: Set up prod conf file
       run: |
         mkdir -p src/main/resources/secrets

@@ -1,0 +1,34 @@
+name: Add SSH Connection
+description: "Coucou"
+inputs:
+  inputs:
+    aliasname:
+      required: true
+      type: string
+    user:
+      required: true
+      type: string
+    serverhost:
+      required: true
+      type: string
+  secrets:
+    envSSH_KEY:
+      required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Create Conf File
+      run: |
+        mkdir -p ~/.ssh/
+        echo "$SSH_KEY" > ~/.ssh/key.key
+        chmod 600 ~/.ssh/key.key
+        cat >>~/.ssh/config <<END
+        Host ${{ inputs.aliasname }}
+          HostName ${{ inputs.serverhost }}
+          User ${{ inputs.user }}
+          IdentityFile ~/.ssh/key.key
+          StrictHostKeyChecking no
+        END
+      env:
+        SSH_KEY: ${{ secrets.envSSH_KEY }}
+
