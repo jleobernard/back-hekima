@@ -13,12 +13,12 @@ on:
 jobs:
   configuration:
     uses: jleobernard/actions/.github/workflows/reuse-add-ssh.yml@master
-      with:
-        aliasname: 'production'
-        user: 'debian'
-        serverhost: '188.165.201.228'
-      secrets:
-        envSSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+    with:
+      aliasname: 'production'
+      user: 'debian'
+      serverhost: '188.165.201.228'
+    secrets:
+      envSSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
   build:
     needs: configuration
     runs-on: ubuntu-latest
