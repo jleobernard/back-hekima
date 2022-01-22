@@ -1,19 +1,18 @@
-name: Add SSH Connection
+name: "Add SSH Connection"
 description: "Coucou"
 inputs:
-  inputs:
-    aliasname:
-      required: true
-      type: string
-    user:
-      required: true
-      type: string
-    serverhost:
-      required: true
-      type: string
-  secrets:
-    envSSH_KEY:
-      required: true
+  aliasname:
+    required: true
+    description: "Alias of the server used in ssh commands"
+  user:
+    required: true
+    description: "User that will connect to the server"
+  serverhost:
+    required: true
+    description: "IP or dns name of the server"
+  envSSH_KEY:
+    required: true
+    description: "Private key to connect"
 runs:
   using: "composite"
   steps:
@@ -30,5 +29,5 @@ runs:
           StrictHostKeyChecking no
         END
       env:
-        SSH_KEY: ${{ secrets.envSSH_KEY }}
+        SSH_KEY: ${{ inputs.envSSH_KEY }}
 

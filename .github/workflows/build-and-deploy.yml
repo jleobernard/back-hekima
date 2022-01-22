@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - uses: jleobernard/back-hekima/.github/actions/add-ssh.yml@main
+    - uses: actions/add-ssh@main
       with:
         aliasname: 'production'
         user: 'debian'
