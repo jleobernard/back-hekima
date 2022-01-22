@@ -21,7 +21,6 @@ jobs:
         aliasname: 'production'
         user: 'debian'
         serverhost: '188.165.201.228'
-      secrets:
         envSSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
     - name: Set up prod conf file
       run: |
