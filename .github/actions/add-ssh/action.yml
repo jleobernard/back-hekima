@@ -28,6 +28,7 @@ runs:
           IdentityFile ~/.ssh/key.key
           StrictHostKeyChecking no
         END
+      shell: bash
       env:
         SSH_KEY: ${{ inputs.envSSH_KEY }}
 
