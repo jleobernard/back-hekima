@@ -1,5 +1,5 @@
 name: "Add SSH Connection"
-description: "Coucou"
+description: "Add ssh connection parameters to ssh to a new host"
 inputs:
   aliasname:
     required: true
@@ -19,13 +19,13 @@ runs:
     - name: Create Conf File
       run: |
         mkdir -p ~/.ssh/
-        echo "$SSH_KEY" > ~/.ssh/key.key
+        echo "$SSH_KEY" > ~/.ssh/${{ inputs.aliasname }}.key
         chmod 600 ~/.ssh/key.key
         cat >>~/.ssh/config <<END
         Host ${{ inputs.aliasname }}
           HostName ${{ inputs.serverhost }}
           User ${{ inputs.user }}
-          IdentityFile ~/.ssh/key.key
+          IdentityFile ~/.ssh/${{ inputs.aliasname }}.key
           StrictHostKeyChecking no
         END
       shell: bash
