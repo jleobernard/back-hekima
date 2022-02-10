@@ -21,11 +21,13 @@ public class NoteRouter {
                                                 final SubsService subsService,
                                                 final UserService userService,
                                                 final QuizzService quizzService,
-                                                final AuthenticationService authenticationService) {
+                                                final AuthenticationService authenticationService,
+                                                final VersionService versionService) {
         RouterFunction<ServerResponse> f = routeSubs(subsService);
         f = routeNotes(noteService, f);
         f = routeSources(sourceService, f);
         f = routeQuizz(quizzService, f);
+        f = routeServices(versionService, f);
         return f.andRoute(
                 GET("/api/user")
                                 .and(accept(MediaType.APPLICATION_JSON)),
@@ -54,6 +56,11 @@ public class NoteRouter {
                 .andRoute(DELETE("/api/tags/{uri}")
                         .and(accept(MediaType.APPLICATION_JSON)),
                 tagService::delete);
+    }
+
+    private RouterFunction<ServerResponse> routeServices(VersionService versionService, RouterFunction<ServerResponse> f) {
+        return RouterFunctions
+                .route(GET("/api/version").and(accept(MediaType.APPLICATION_JSON)), versionService::getVersion);
     }
 
     private RouterFunction<ServerResponse> routeSubs(SubsService subsService) {
