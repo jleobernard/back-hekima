@@ -31,7 +31,7 @@ public class SecurityConfiguration {
     @Bean
     public SecurityWebFilterChain securitygWebFilterChain(ServerHttpSecurity http) {
         return http.authorizeExchange()
-            .pathMatchers("/api/login",
+            .pathMatchers("/api/login", "/api/version",
                     "/api/authentication:status",
                     "/api/kosubs:reload"/*,
                     "/api/kosubs"*/
