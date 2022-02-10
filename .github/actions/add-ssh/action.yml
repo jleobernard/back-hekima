@@ -20,7 +20,7 @@ runs:
       run: |
         mkdir -p ~/.ssh/
         echo "$SSH_KEY" > ~/.ssh/${{ inputs.aliasname }}.key
-        chmod 600 ~/.ssh/key.key
+        chmod 600 ~/.ssh/${{ inputs.aliasname }}.key
         cat >>~/.ssh/config <<END
         Host ${{ inputs.aliasname }}
           HostName ${{ inputs.serverhost }}
