@@ -42,10 +42,6 @@ jobs:
       run: scp -r deploy/validation/* production:/opt/containers/back-hekima
     - name: Deploy jar
       run: scp target/hekima.jar production:/opt/containers/back-hekima/docker
-    - name: Stop the server
-      run: ssh production "cd /opt/containers/back-hekima && docker-compose down"
-    - name: Check server stopped
-      run: rc=$?; if [[ $rc != 0 ]]; then echo "Cannot stop container"; fi
     - name: Rebuild the image and start the server
       run: ssh production "cd /opt/containers/back-hekima && docker-compose up -d --build"
     - name: Last check
