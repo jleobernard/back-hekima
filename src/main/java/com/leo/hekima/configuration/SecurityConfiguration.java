@@ -1,14 +1,18 @@
 package com.leo.hekima.configuration;
 
+import com.leo.hekima.service.JwtTokenProvider;
 import com.leo.hekima.service.UserService;
+import com.leo.hekima.web.JwtTokenAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.authentication.UserDetailsRepositoryReactiveAuthenticationManager;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
+import org.springframework.security.config.web.server.SecurityWebFiltersOrder;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
 
 import java.security.SecureRandom;
 
@@ -29,16 +33,23 @@ public class SecurityConfiguration {
     }
 
     @Bean
-    public SecurityWebFilterChain securitygWebFilterChain(ServerHttpSecurity http) {
-        return http.authorizeExchange()
+    public SecurityWebFilterChain securitygWebFilterChain(final ServerHttpSecurity http,
+                                                          final JwtTokenProvider tokenProvider) {
+        return http
+                .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
+                .securityContextRepository(NoOpServerSecurityContextRepository.getInstance())
+            .authorizeExchange()
             .pathMatchers("/api/login", "/api/version",
                     "/api/authentication:status",
                     "/api/kosubs:reload"/*,
                     "/api/kosubs"*/
             ).permitAll()
             .anyExchange().authenticated()
-            .and().formLogin().loginPage("/api/login")
-            .and().csrf().disable()
+            .and()
+                .formLogin().loginPage("/api/login")
+            .and()
+            .addFilterAt(new JwtTokenAuthenticationFilter(tokenProvider), SecurityWebFiltersOrder.HTTP_BASIC)
             .build();
     }
 }
