@@ -1,9 +1,11 @@
 package com.leo.hekima.configuration;
 
+import com.leo.hekima.exception.UnrecoverableServiceException;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.Map;
+import java.util.Optional;
 
 @Configuration
 public class JwtConfiguration {
@@ -29,7 +31,8 @@ public class JwtConfiguration {
     public JwtProperties jwtProperties() {
         final Map<String, String> env = System.getenv();
         return new JwtProperties(
-            env.get("NOTES_JWT_SECRET_KEY"),
+            Optional.ofNullable(env.get("NOTES_JWT_SECRET_KEY"))
+                .orElseThrow(() -> new UnrecoverableServiceException("Set a value for NOTES_JWT_SECRET_KEY")),
             Integer.parseInt(env.getOrDefault("NOTES_JWT_VALIDITY_MS", "3600000"))
         );
     }

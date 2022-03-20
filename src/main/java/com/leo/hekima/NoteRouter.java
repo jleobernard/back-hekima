@@ -20,7 +20,8 @@ public class NoteRouter {
                                                 final TagService tagService,
                                                 final SubsService subsService,
                                                 final UserService userService,
-                                                final QuizzService quizzService) {
+                                                final QuizzService quizzService,
+                                                final AuthenticationService authenticationService) {
         RouterFunction<ServerResponse> f = routeSubs(subsService);
         f = routeNotes(noteService, f);
         f = routeSources(sourceService, f);
@@ -29,6 +30,10 @@ public class NoteRouter {
                 GET("/api/user")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         userService::me)
+                .andRoute(POST("/api/login")
+                    .and(contentType(MediaType.APPLICATION_JSON))
+                    .and(accept(MediaType.APPLICATION_JSON)),
+                        authenticationService::authenticate)
                 .andRoute(GET("/api/authentication:status")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         userService::me)

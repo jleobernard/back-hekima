@@ -40,6 +40,8 @@ jobs:
       run: ssh production "mkdir -p /opt/containers/back-hekima"
     - name: Deploy static resources for Docker
       run: scp -r deploy/validation/* production:/opt/containers/back-hekima
+    - name: Set JWT Token Secret
+      run: ssh production "sed -i 's~###NOTES_JWT_SECRET_KEY###~${{ secrets.NOTES_JWT_SECRET_KEY }}~g' /opt/containers/back-hekima/docker-compose.yml"
     - name: Deploy jar
       run: scp target/hekima.jar production:/opt/containers/back-hekima/docker
     - name: Rebuild the image and start the server

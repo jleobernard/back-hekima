@@ -47,8 +47,6 @@ public class SecurityConfiguration {
             ).permitAll()
             .anyExchange().authenticated()
             .and()
-                .formLogin().loginPage("/api/login")
-            .and()
             .addFilterAt(new JwtTokenAuthenticationFilter(tokenProvider), SecurityWebFiltersOrder.HTTP_BASIC)
             .build();
     }
