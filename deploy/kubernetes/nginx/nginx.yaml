@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  labels:
+    app: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.21.6-alpine
+          ports:
+            - containerPort: 443
+          volumeMounts:
+            - name: nginx-storage
+              mountPath: /etc/nginx
+            - name: nginx-letsencrypt
+              mountPath: /etc/letsencryot
+            - name: kosubs-storage
+              mountPath: /kosubs
+      volumes:
+        - name: nginx-storage
+          persistentVolumeClaim:
+            claimName: nginx-pv-claim
+        - name: nginx-letsencrypt
+          persistentVolumeClaim:
+            claimName: nginx-pv-claim-letsencrypt
+        - name: kosubs-storage
+          persistentVolumeClaim:
+            claimName: nginx-pv-claim-kosubs
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: notes-pv-claim
+spec:
+  volumeName: pv-ko-store
+  storageClassName: manual
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: notes-pv-claim-data
+spec:
+  volumeName: pv-notes-data
+  storageClassName: manual
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: notes-pv-claim-logs
+spec:
+  volumeName: pv-notes-logs
+  storageClassName: manual
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 500Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notes-service
+spec:
+  selector:
+    app: notes
+  type: LoadBalancer
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+      nodePort: 30000

@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notes-deployment
+  labels:
+    app: notes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notes
+  template:
+    metadata:
+      labels:
+        app: notes
+    spec:
+      containers:
+        - name: notes
+          image: jleobernard/notes:2.0.0
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: notes-storage
+              mountPath: /kosubs
+            - name: notes-data
+              mountPath: /data
+            - name: notes-logs
+              mountPath: /logs
+          env:
+            - name: SPRING_PROFILE
+              value: validation
+            - name: JAVA_OPTS
+              value: -Xms128m -Xmx2048m
+            - name: NOTES_DB_HOST
+              value: localhost
+            - name: NOTES_DB_PORT
+              value: "5432"
+            - name: NOTES_DB_NAME
+              value: notes
+            - name: NOTES_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: notes-secret
+                  key: notes-db-user
+            - name: NOTES_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: notes-secret
+                  key: notes-db-user
+      imagePullSecrets:
+        - name: regcred
+      volumes:
+        - name: notes-storage
+          persistentVolumeClaim:
+            claimName: notes-pv-claim
+        - name: notes-data
+          persistentVolumeClaim:
+            claimName: notes-pv-claim-data
+        - name: notes-logs
+          persistentVolumeClaim:
+            claimName: notes-pv-claim-logs
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: notes-pv-claim
+spec:
+  volumeName: pv-ko-store
+  storageClassName: manual
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: notes-pv-claim-data
+spec:
+  volumeName: pv-notes-data
+  storageClassName: manual
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: notes-pv-claim-logs
+spec:
+  volumeName: pv-notes-logs
+  storageClassName: manual
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 500Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notes-service
+spec:
+  selector:
+    app: notes
+  type: LoadBalancer
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+      nodePort: 30000

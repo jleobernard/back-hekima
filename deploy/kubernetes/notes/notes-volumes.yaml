@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-ko-store
+  labels:
+    type: local
+spec:
+  capacity:
+    storage: 100Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /opt/data/korean-subs/store
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-notes-data
+  labels:
+    type: local
+spec:
+  capacity:
+    storage: 100Mi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /opt/containers/back-hekima/data
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-notes-logs
+  labels:
+    type: local
+spec:
+  capacity:
+    storage: 500Mi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /opt/containers/back-hekima/logs
