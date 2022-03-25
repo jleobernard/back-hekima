@@ -42,7 +42,9 @@ public class SecurityConfiguration {
             .authorizeExchange()
             .pathMatchers("/api/login", "/api/version",
                     "/api/authentication:status",
-                    "/api/kosubs:reload"/*,
+                    "/api/kosubs:reload",
+                    "/api/token:refresh"
+                    /*,
                     "/api/kosubs"*/
             ).permitAll()
             .anyExchange().authenticated()

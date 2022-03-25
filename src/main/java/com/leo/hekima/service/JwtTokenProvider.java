@@ -1,6 +1,7 @@
 package com.leo.hekima.service;
 
 import com.leo.hekima.configuration.JwtConfiguration;
+import com.leo.hekima.model.UserAccount;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import org.slf4j.Logger;
@@ -31,6 +32,19 @@ public class JwtTokenProvider {
         this.jwtProperties = jwtProperties;
         var secret = Base64.getEncoder().encodeToString(jwtProperties.getSecretKey().getBytes());
         secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+    }
+    public String createToken(UserAccount user) {
+        String username = user.getUri();
+        Claims claims = Jwts.claims().setSubject(username);
+        claims.put(AUTHORITIES_KEY, "USER");
+        Date now = new Date();
+        Date validity = new Date(now.getTime() + jwtProperties.getValidityInMs());
+        return Jwts.builder()//
+                .setClaims(claims)//
+                .setIssuedAt(now)//
+                .setExpiration(validity)//
+                .signWith(secretKey, SignatureAlgorithm.HS256)//
+                .compact();
     }
     public String createToken(Authentication authentication) {
         String username = authentication.getName();

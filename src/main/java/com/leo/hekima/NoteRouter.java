@@ -40,6 +40,10 @@ public class NoteRouter {
                 .andRoute(GET("/api/tags")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         tagService::search)
+                .andRoute(POST("/api/token:refresh")
+                                .and(accept(MediaType.APPLICATION_JSON))
+                                .and(contentType(MediaType.APPLICATION_JSON)),
+                        authenticationService::refresh)
                 .andRoute(GET("/api/tags/{uri}")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         tagService::findByUri)
