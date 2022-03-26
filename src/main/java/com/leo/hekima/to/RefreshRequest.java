@@ -1,13 +1,18 @@
 package com.leo.hekima.to;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+
 public class RefreshRequest {
     private String refreshToken;
 
-    public String getRefreshToken() {
-        return refreshToken;
+    @JsonCreator
+    public RefreshRequest(@JsonProperty("refreshToken") String refreshToken) {
+        this.refreshToken = refreshToken;
     }
 
-    public void setRefreshToken(String refreshToken) {
-        this.refreshToken = refreshToken;
+    public String getRefreshToken() {
+        return refreshToken;
     }
 }
