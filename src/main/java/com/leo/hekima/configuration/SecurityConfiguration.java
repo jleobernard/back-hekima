@@ -43,7 +43,8 @@ public class SecurityConfiguration {
             .pathMatchers("/api/login", "/api/version",
                     "/api/authentication:status",
                     "/api/kosubs:reload",
-                    "/api/token:refresh"
+                    "/api/token:refresh",
+                    "/api/notes/*/files/*"
                     /*,
                     "/api/kosubs"*/
             ).permitAll()
