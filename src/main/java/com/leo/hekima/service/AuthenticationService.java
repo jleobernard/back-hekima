@@ -62,8 +62,8 @@ public class AuthenticationService {
     public Mono<ServerResponse> refresh(ServerRequest serverRequest) {
         return serverRequest.body(toMono(RefreshRequest.class))
             .flatMap(token ->
-                refreshTokenRepository.findUserByRefreshToken(token.refreshToken())
-            .flatMap(user -> refreshTokenRepository.deleteByToken(token.refreshToken()).then(
+                refreshTokenRepository.findUserByRefreshToken(token.getRefreshToken())
+            .flatMap(user -> refreshTokenRepository.deleteByToken(token.getRefreshToken()).then(
                 refreshTokenRepository.save(new RefreshTokenModel(user.getId(), UUID.randomUUID().toString())).map(
                     rt -> Triple.of(user, jwtTokenProvider.createToken(user), rt)
                 )
