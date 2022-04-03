@@ -110,16 +110,35 @@ public class NoteService {
 
     @Transactional(readOnly = true)
     public Mono<ServerResponse> count(ServerRequest serverRequest) {
+        final String baseRequest = """
+            SELECT count(DISTINCT n.id) as notecount FROM note n
+            LEFT JOIN note_tag nt ON n.id = nt.note_id
+            LEFT JOIN tag t ON nt.tag_id = t.id
+            LEFT JOIN note_source s ON n.source_id = s.id
+            """;
         final Set<String> tags = getStringSet(serverRequest, "tags");
-        final Set<String> sources = getStringSet(serverRequest, "sources");final boolean emptyTags = CollectionUtils.isEmpty(tags);
-        final boolean emptySources = CollectionUtils.isEmpty(sources);
-        final Mono<Long> countNotes;
-        if (emptySources) {
-            countNotes = emptyTags ? noteRepository.count() : noteRepository.countByTagsIn(tags);
-        } else {
-            countNotes = emptyTags ? noteRepository.countBySourceIn(sources) :
-                    noteRepository.countBySourceInOrTagsIn(sources, tags);
+        final Set<String> notTags = getStringSet(serverRequest, "notTags");
+        final Set<String> sources = getStringSet(serverRequest, "sources");
+        final List<String> conditions = new ArrayList<>(3);
+        if(isNotEmpty(tags)) {
+            conditions.add(" t.uri IN ('" + String.join("','", tags) + "')");
         }
+        if(isNotEmpty(notTags)) {
+            conditions.add("""
+                        n.id NOT IN (SELECT distinct(_nt.note_id) FROM note_tag _nt LEFT JOIN tag _t ON _nt.tag_id = _t.id
+                                                            WHERE _t.uri IN ('""" + String.join("','", notTags) + "'))");
+        }
+        if(isNotEmpty(sources)) {
+            conditions.add("s.uri IN ('" + String.join("','", sources) + "')");
+        }
+        final String request = baseRequest + (CollectionUtils.isEmpty(conditions) ? "" : " WHERE ") + String.join(" AND ", conditions);
+        Mono<Integer> countNotes = Mono.from(connectionFactory.create()).flatMap(connection ->
+            orEmptyList(Flux.from(connection.createStatement(request).execute())
+                    .doFinally((st) -> Mono.from(connection.close()).subscribe())
+                    .flatMap(result -> result.map((row, meta) -> row.get("notecount", Long.class).intValue())))
+                    .map(counts -> isEmpty(counts) ? 0 : counts.get(0))
+            )
+            .switchIfEmpty(Mono.just(0));
         return WebUtils.ok().body(countNotes, Long.class);
     }
 
