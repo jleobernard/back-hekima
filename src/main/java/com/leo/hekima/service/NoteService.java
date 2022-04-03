@@ -49,9 +49,12 @@ import static com.leo.hekima.utils.ReactiveUtils.orEmptyList;
 import static com.leo.hekima.utils.RequestUtils.getStringSet;
 import static com.leo.hekima.utils.WebUtils.getPageAndSort;
 import static java.lang.String.format;
+import static java.lang.String.join;
+import static org.apache.commons.collections4.CollectionUtils.isNotEmpty;
 import static org.springframework.util.CollectionUtils.isEmpty;
 import static org.springframework.web.reactive.function.BodyExtractors.toMono;
 import static org.springframework.web.reactive.function.server.ServerResponse.*;
+import static reactor.core.publisher.Mono.defer;
 import static reactor.core.publisher.Mono.just;
 
 @Component
@@ -138,18 +141,26 @@ public class NoteService {
                         .filter(n -> n.matches("[a-z0-9]+"))
                         .collect(Collectors.toList()))
                 .filter(l -> !l.isEmpty())
-                .ifPresent(s -> conditions.add("note.id IN (SELECT note_id FROM note_tag LEFT JOIN tag on tag.id = note_tag.tag_id WHERE tag.uri in ('" + String.join("','", s) + "'))"));
+                .ifPresent(allTags -> conditions.add("note.id IN (SELECT note_id FROM note_tag LEFT JOIN tag on tag.id = note_tag.tag_id WHERE tag.uri in ('" + join("','", allTags) + "'))"));
+            request.queryParam("notTags")
+                    .filter(StringUtils::isNotEmpty)
+                    .map(tu -> Arrays.stream(tu.split("\\s*,\\s*"))
+                            .map(DataUtils::sanitize)
+                            .filter(n -> n.matches("[a-z0-9]+"))
+                            .collect(Collectors.toList()))
+                    .filter(l -> !l.isEmpty())
+                    .ifPresent(allTags -> conditions.add("note.id NOT IN (SELECT note_id FROM note_tag LEFT JOIN tag on tag.id = note_tag.tag_id WHERE tag.uri in ('" + join("','", allTags) + "'))"));
             final Set<Word> indexableWords = request.queryParam("q")
                     .filter(StringUtils::isNotEmpty)
                     .map(wordAnalyzer::getIndexableWords)
                     .filter(l -> !l.isEmpty()).orElse(Collections.emptySet());
             if(!indexableWords.isEmpty()) {
-                conditions.add("note.id IN (SELECT note_id FROM note_word LEFT JOIN word on word.id = note_word.word_id WHERE word.word in ('" + String.join("','", indexableWords.stream().map(Word::word).collect(Collectors.toSet())) + "'))");
+                conditions.add("note.id IN (SELECT note_id FROM note_word LEFT JOIN word on word.id = note_word.word_id WHERE word.word in ('" + join("','", indexableWords.stream().map(Word::word).collect(Collectors.toSet())) + "'))");
             }
             final StringBuilder sql = new StringBuilder("SELECT id, uri, valeur, created_at, source_id, files, subs from note ");
             if(!conditions.isEmpty()) {
                 sql.append(" WHERE ");
-                sql.append(String.join(" AND ", conditions));
+                sql.append(join(" AND ", conditions));
             }
             sql.append(" ORDER BY created_at DESC OFFSET ");
             sql.append(pageAndSort.offset());
@@ -185,8 +196,8 @@ public class NoteService {
                         sorted.sort(Comparator.comparingInt(h -> uris.indexOf(h.uri())));
                         return sorted;
                     });
-            });
-            return WebUtils.ok().body(views, NoteView.class);
+            }).switchIfEmpty(defer(() -> Mono.just(Collections.emptyList())));
+            return ok().body(views, NoteView.class);
         });
     }
 
@@ -272,7 +283,7 @@ public class NoteService {
         } else {
             mono = Mono.just(1);
         }
-        return mono.flatMap(deltaFileIndex -> noteRepository.save(note).then(Mono.defer(() -> {
+        return mono.flatMap(deltaFileIndex -> noteRepository.save(note).then(defer(() -> {
             if (actionIndex >= actions.size() - 1) {
                 return Mono.just(note);
             } else {
@@ -373,7 +384,7 @@ public class NoteService {
                 final String uri = StringUtils.isNotEmpty(request.getUri()) ? request.getUri() : WebUtils.getOrCreateUri(request, serverRequest);
                 return Mono.zip(
                     Mono.just(request),
-                    noteRepository.findByUri(uri).switchIfEmpty(Mono.defer(() -> Mono.just(new NoteModel(uri))))
+                    noteRepository.findByUri(uri).switchIfEmpty(defer(() -> Mono.just(new NoteModel(uri))))
                 );
             })
             .flatMap(uriAndSource -> {
@@ -465,7 +476,7 @@ public class NoteService {
                 .map(w -> w.substring(0, Math.min(50, w.length()))).collect(Collectors.toSet());
         return Flux.fromIterable(indexableWords)
         .flatMap(word -> wordRepository.findByWord(word)
-                .switchIfEmpty(Mono.defer(() -> just(new WordModel(word, Language.FRENCH)))))
+                .switchIfEmpty(defer(() -> just(new WordModel(word, Language.FRENCH)))))
         .collectList()
         .flatMap(words -> {
             final List<WordModel> toSave = words.stream().filter(w -> w.getId() == null).collect(Collectors.toList());
@@ -479,7 +490,7 @@ public class NoteService {
                 words.stream()
                     .map(w -> new NoteWordModel(savedNote.getId(), w.getId()))
                     .collect(Collectors.toList())).then())
-        .then(Mono.defer(() -> just(savedNote)));
+        .then(defer(() -> just(savedNote)));
     }
 
     private File getDataFile(String fileId) {

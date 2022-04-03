@@ -5,7 +5,7 @@ import java.util.Locale;
 
 public class DataUtils {
 
-    public static final String sanitize(final String q) {
+    public static String sanitize(final String q) {
         if( q == null) {
             return null;
         }
