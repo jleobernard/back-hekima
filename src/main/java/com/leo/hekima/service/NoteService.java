@@ -186,9 +186,13 @@ public class NoteService {
             sql.append(pageAndSort.offset());
             sql.append(" LIMIT ");
             sql.append(pageAndSort.count());
+            logger.debug("Start executing request");
             var views = orEmptyList(
                 Flux.from(connection.createStatement(sql.toString()).execute())
-                .doFinally((st) -> Mono.from(connection.close()).subscribe())
+                .doFinally((st) -> {
+                    logger.debug("Search request executed");
+                    Mono.from(connection.close()).subscribe();
+                })
                 .flatMap(result -> result.map((row, meta) -> new NoteModel(
                     row.get("id", Long.class),
                     row.get("uri", String.class),
