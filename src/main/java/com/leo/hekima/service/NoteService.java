@@ -527,6 +527,7 @@ public class NoteService {
     public Mono<NoteView> toView(NoteModel t) {
         final NoteView alreadyExistingNote = notesCache.get(t.getUri());
         if(alreadyExistingNote == null) {
+            logger.debug("Cache miss for note {}", t.getUri());
             return Mono.zip(
                             orEmptyList(tagRepository.findByNoteId(t.getId())),
                             t.getSourceId() == null ?
@@ -541,6 +542,7 @@ public class NoteService {
                         return noteView;
                     });
         } else {
+            logger.debug("Cache hit for note {}", t.getUri());
             return Mono.just(alreadyExistingNote);
         }
     }
