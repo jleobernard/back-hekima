@@ -187,10 +187,11 @@ public class NoteService {
             sql.append(" LIMIT ");
             sql.append(pageAndSort.count());
             logger.debug("Start executing request");
+            final long start = System.currentTimeMillis();
             var views = orEmptyList(
                 Flux.from(connection.createStatement(sql.toString()).execute())
                 .doFinally((st) -> {
-                    logger.debug("Search request executed");
+                    logger.debug("Search request executed (took {}ms)", (System.currentTimeMillis() - start));
                     Mono.from(connection.close()).subscribe();
                 })
                 .flatMap(result -> result.map((row, meta) -> new NoteModel(
