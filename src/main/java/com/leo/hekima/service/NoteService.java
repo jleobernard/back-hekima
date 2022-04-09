@@ -73,6 +73,7 @@ public class NoteService {
     private final WordRepository wordRepository;
     private final NoteWordRepository noteWordRepository;
     public static final TypeReference<List<NoteFilePatchAction>> TR_LIST_OF_ACTIONS = new TypeReference<>() {};
+    private final Map<String, NoteView> notesCache = new HashMap<>();
 
     public NoteService(NoteRepository noteRepository,
                        NoteTagRepository noteTagRepository, TagRepository tagRepository,
@@ -236,6 +237,7 @@ public class NoteService {
         final String uri = serverRequest.pathVariable("uri");
         return noteRepository.findByUri(uri)
             .doOnNext(note -> {
+                notesCache.remove(uri);
                 for (int i = 0; i < note.getFiles().files().size(); i++) {
                     this.deleteFile(note, i);
                 }
@@ -265,6 +267,7 @@ public class NoteService {
     @Transactional
     public Mono<ServerResponse> patchFiles(ServerRequest serverRequest) {
         final String uri = serverRequest.pathVariable("uri");
+        notesCache.remove(uri);
         return noteRepository.findByUri(uri).zipWith(serverRequest.multipartData())
         .flatMap(tuple -> {
             final NoteModel note = tuple.getT1();
@@ -312,6 +315,7 @@ public class NoteService {
     }
 
     private Mono<NoteModel> upsertFile(final NoteModel note, final String oldFileId, final Part filePart) {
+        notesCache.remove(note.getUri());
         final String mimeType = Objects.requireNonNull(filePart.headers().getContentType()).toString();
         final var noteFiles = note.getFiles();
         final var files = noteFiles.files();
@@ -401,6 +405,7 @@ public class NoteService {
         return serverRequest.body(toMono(NoteUpsertRequest.class))
             .flatMap(request ->  {
                 final String uri = StringUtils.isNotEmpty(request.getUri()) ? request.getUri() : WebUtils.getOrCreateUri(request, serverRequest);
+                notesCache.remove(uri);
                 return Mono.zip(
                     Mono.just(request),
                     noteRepository.findByUri(uri).switchIfEmpty(defer(() -> Mono.just(new NoteModel(uri))))
@@ -482,6 +487,7 @@ public class NoteService {
 
     @Transactional
     public Mono<ServerResponse> reindex(ServerRequest serverRequest) {
+        notesCache.clear();
         return wordRepository.deleteAll()
         .thenMany(noteRepository.findAll())
         .flatMap(this::saveIndexedWords, 1)
@@ -519,17 +525,24 @@ public class NoteService {
     }
 
     public Mono<NoteView> toView(NoteModel t) {
-        return Mono.zip(
-            orEmptyList(tagRepository.findByNoteId(t.getId())),
-            t.getSourceId() == null ?
-                Mono.just(Optional.empty()) :
-                sourceRepository.findById(t.getSourceId()).map(Optional::of).switchIfEmpty(Mono.just(Optional.empty())))
-        .map(tuple -> {
-            final var tags = TagService.toView(tuple.getT1());
-            final var source = tuple.getT2().map(s -> SourceService.toView((SourceModel) s)).orElse(null);
-            return new NoteView(t.getUri(), t.getValeur(), tags, source, t.getFiles().files(),
-                    t.getSubs() == null ? null : t.getSubs().subs());
-        });
+        final NoteView alreadyExistingNote = notesCache.get(t.getUri());
+        if(alreadyExistingNote == null) {
+            return Mono.zip(
+                            orEmptyList(tagRepository.findByNoteId(t.getId())),
+                            t.getSourceId() == null ?
+                                    Mono.just(Optional.empty()) :
+                                    sourceRepository.findById(t.getSourceId()).map(Optional::of).switchIfEmpty(Mono.just(Optional.empty())))
+                    .map(tuple -> {
+                        final var tags = TagService.toView(tuple.getT1());
+                        final var source = tuple.getT2().map(s -> SourceService.toView((SourceModel) s)).orElse(null);
+                        final NoteView noteView = new NoteView(t.getUri(), t.getValeur(), tags, source, t.getFiles().files(),
+                            t.getSubs() == null ? null : t.getSubs().subs());
+                        notesCache.put(t.getUri(), noteView);
+                        return noteView;
+                    });
+        } else {
+            return Mono.just(alreadyExistingNote);
+        }
     }
 
     private void initVision(final boolean failOnError) {
