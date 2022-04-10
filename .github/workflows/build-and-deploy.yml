@@ -43,7 +43,7 @@ jobs:
     - name: Set JWT Token Secret
       run: ssh production "sed -i 's~###NOTES_JWT_SECRET_KEY###~${{ secrets.NOTES_JWT_SECRET_KEY }}~g' /opt/containers/back-hekima/docker-compose.yml"
     - name: Deploy jar
-      run: scp target/hekima.jar production:/opt/containers/back-hekima/docker
+      run: scp target/notes.jar production:/opt/containers/back-hekima/docker
     - name: Rebuild the image and start the server
       run: ssh production "cd /opt/containers/back-hekima && docker-compose up -d --build"
     - name: Last check
