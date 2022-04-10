@@ -118,7 +118,7 @@
 	</dependencies>
 
 	<build>
-		<finalName>hekima</finalName>
+		<finalName>notes</finalName>
 		<plugins>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>

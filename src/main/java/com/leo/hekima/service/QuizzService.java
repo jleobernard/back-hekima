@@ -1,12 +1,12 @@
 package com.leo.hekima.service;
 
-import com.leo.hekima.model.*;
+import com.leo.hekima.model.NoteQuizzHistoryModel;
+import com.leo.hekima.model.NoteSummary;
 import com.leo.hekima.repository.NoteQuizzHistoryRepository;
 import com.leo.hekima.repository.NoteRepository;
 import com.leo.hekima.to.AckResponse;
 import com.leo.hekima.to.ElementSummaryView;
 import com.leo.hekima.to.QuizzAnswerRequest;
-import com.leo.hekima.utils.JsonUtils;
 import com.leo.hekima.utils.ReactiveUtils;
 import com.leo.hekima.utils.WebUtils;
 import io.r2dbc.spi.ConnectionFactory;
@@ -20,9 +20,7 @@ import reactor.core.publisher.Mono;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import static com.leo.hekima.utils.ReactiveUtils.optionalEmptyDeferred;
 import static com.leo.hekima.utils.RequestUtils.getCount;

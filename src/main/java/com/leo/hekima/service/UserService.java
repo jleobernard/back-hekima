@@ -6,15 +6,9 @@ import com.google.firebase.FirebaseOptions;
 import com.leo.hekima.exception.UnrecoverableServiceException;
 import com.leo.hekima.repository.UserRepository;
 import com.leo.hekima.to.AckResponse;
-import com.leo.hekima.to.AuthenticationRequest;
-import com.leo.hekima.utils.WebUtils;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
-import org.springframework.security.authentication.ReactiveAuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.security.core.context.SecurityContext;
@@ -29,10 +23,8 @@ import reactor.core.publisher.Mono;
 
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.util.Map;
 
 import static com.leo.hekima.utils.WebUtils.ok;
-import static org.springframework.web.reactive.function.BodyExtractors.toMono;
 
 @Service
 public class UserService implements ReactiveUserDetailsService {

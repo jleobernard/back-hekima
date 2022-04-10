@@ -11,6 +11,7 @@ import com.leo.hekima.model.*;
 import com.leo.hekima.repository.*;
 import com.leo.hekima.to.*;
 import com.leo.hekima.utils.*;
+import io.r2dbc.postgresql.codec.Json;
 import io.r2dbc.spi.ConnectionFactory;
 import org.apache.commons.collections4.CollectionUtils;
 import org.slf4j.Logger;
@@ -19,6 +20,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.Part;
@@ -40,6 +42,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -74,6 +77,7 @@ public class NoteService {
     private final NoteWordRepository noteWordRepository;
     public static final TypeReference<List<NoteFilePatchAction>> TR_LIST_OF_ACTIONS = new TypeReference<>() {};
     private final Map<String, NoteView> notesCache = new HashMap<>();
+    private final R2dbcEntityTemplate r2dbcEntityTemplate;
 
     public NoteService(NoteRepository noteRepository,
                        NoteTagRepository noteTagRepository, TagRepository tagRepository,
@@ -81,7 +85,8 @@ public class NoteService {
                        ConnectionFactory connectionFactory,
                        @Value("${google.credentials}") final String googleCredentialsPath,
                        @Value("${data.dir}") final String dataDirPath,
-                       @Value("${subs.videoclipper.url}") final String videoClipperUrl, WordAnalyzer wordAnalyzer, WordRepository wordRepository, NoteWordRepository noteWordRepository) {
+                       @Value("${subs.videoclipper.url}") final String videoClipperUrl, WordAnalyzer wordAnalyzer,
+                       WordRepository wordRepository, NoteWordRepository noteWordRepository, R2dbcEntityTemplate r2dbcEntityTemplate) {
         this.noteRepository = noteRepository;
         this.noteTagRepository = noteTagRepository;
         this.tagRepository = tagRepository;
@@ -93,6 +98,7 @@ public class NoteService {
         this.wordAnalyzer = wordAnalyzer;
         this.wordRepository = wordRepository;
         this.noteWordRepository = noteWordRepository;
+        this.r2dbcEntityTemplate = r2dbcEntityTemplate;
         if(!this.dataDir.exists()) {
             logger.info("Creating data directory {}", dataDirPath);
             if(!this.dataDir.mkdirs()) {
@@ -145,85 +151,79 @@ public class NoteService {
 
     @Transactional(readOnly = true)
     public Mono<ServerResponse> search(ServerRequest request) {
-        return Mono.from(connectionFactory.create()).flatMap(connection -> {
-            final List<String> conditions = new ArrayList<>();
-            var pageAndSort = getPageAndSort(request);
-            // TODO Sanitize
-            request.queryParam("source")
-                .filter(n -> !n.isBlank())
-                .map(n -> n.toLowerCase(Locale.ROOT).trim())
-                .filter(n -> n.matches("[a-z0-9]+"))
-                .ifPresent(s -> conditions.add("note.source_id = (SELECT id FROM note_source WHERE uri = '" + s + "')"));
-            request.queryParam("tags")
+        final List<String> conditions = new ArrayList<>();
+        var pageAndSort = getPageAndSort(request);
+        // TODO Sanitize
+        request.queryParam("source")
+            .filter(n -> !n.isBlank())
+            .map(n -> n.toLowerCase(Locale.ROOT).trim())
+            .filter(n -> n.matches("[a-z0-9]+"))
+            .ifPresent(s -> conditions.add("note.source_id = (SELECT id FROM note_source WHERE uri = '" + s + "')"));
+        request.queryParam("tags")
+            .filter(StringUtils::isNotEmpty)
+            .map(tu -> Arrays.stream(tu.split("\\s*,\\s*"))
+                    .map(DataUtils::sanitize)
+                    .filter(n -> n.matches("[a-z0-9]+"))
+                    .collect(Collectors.toList()))
+            .filter(l -> !l.isEmpty())
+            .ifPresent(allTags -> conditions.add("note.id IN (SELECT note_id FROM note_tag LEFT JOIN tag on tag.id = note_tag.tag_id WHERE tag.uri in ('" + join("','", allTags) + "'))"));
+        request.queryParam("notTags")
                 .filter(StringUtils::isNotEmpty)
                 .map(tu -> Arrays.stream(tu.split("\\s*,\\s*"))
                         .map(DataUtils::sanitize)
                         .filter(n -> n.matches("[a-z0-9]+"))
                         .collect(Collectors.toList()))
                 .filter(l -> !l.isEmpty())
-                .ifPresent(allTags -> conditions.add("note.id IN (SELECT note_id FROM note_tag LEFT JOIN tag on tag.id = note_tag.tag_id WHERE tag.uri in ('" + join("','", allTags) + "'))"));
-            request.queryParam("notTags")
-                    .filter(StringUtils::isNotEmpty)
-                    .map(tu -> Arrays.stream(tu.split("\\s*,\\s*"))
-                            .map(DataUtils::sanitize)
-                            .filter(n -> n.matches("[a-z0-9]+"))
-                            .collect(Collectors.toList()))
-                    .filter(l -> !l.isEmpty())
-                    .ifPresent(allTags -> conditions.add("note.id NOT IN (SELECT note_id FROM note_tag LEFT JOIN tag on tag.id = note_tag.tag_id WHERE tag.uri in ('" + join("','", allTags) + "'))"));
-            final Set<Word> indexableWords = request.queryParam("q")
-                    .filter(StringUtils::isNotEmpty)
-                    .map(wordAnalyzer::getIndexableWords)
-                    .filter(l -> !l.isEmpty()).orElse(Collections.emptySet());
+                .ifPresent(allTags -> conditions.add("note.id NOT IN (SELECT note_id FROM note_tag LEFT JOIN tag on tag.id = note_tag.tag_id WHERE tag.uri in ('" + join("','", allTags) + "'))"));
+        final Set<Word> indexableWords = request.queryParam("q")
+                .filter(StringUtils::isNotEmpty)
+                .map(wordAnalyzer::getIndexableWords)
+                .filter(l -> !l.isEmpty()).orElse(Collections.emptySet());
+        if(!indexableWords.isEmpty()) {
+            conditions.add("note.id IN (SELECT note_id FROM note_word LEFT JOIN word on word.id = note_word.word_id WHERE word.word in ('" + join("','", indexableWords.stream().map(Word::word).collect(Collectors.toSet())) + "'))");
+        }
+        final StringBuilder sql = new StringBuilder("SELECT id, uri, valeur, created_at, source_id, files, subs from note ");
+        if(!conditions.isEmpty()) {
+            sql.append(" WHERE ");
+            sql.append(join(" AND ", conditions));
+        }
+        sql.append(" ORDER BY created_at DESC OFFSET ");
+        sql.append(pageAndSort.offset());
+        sql.append(" LIMIT ");
+        sql.append(pageAndSort.count());
+        logger.debug("Start executing request");
+        final long start = System.currentTimeMillis();
+        var views = orEmptyList(r2dbcEntityTemplate.getDatabaseClient().sql(sql.toString()).fetch().all()
+        .map(row -> new NoteModel(
+            ((Integer) row.get("id")).longValue(),
+            (String) row.get("uri"),
+            (String) row.get("valeur"),
+            ((OffsetDateTime) row.get("created_at")).toInstant(),
+            Optional.ofNullable((Integer) row.get("source_id")).map(Integer::longValue).orElse(null),
+            Optional.ofNullable(((Json) row.get("files")))
+                .map(d -> JsonUtils.deserializeSilentFail(d.asString(), NoteFiles.class))
+                .orElseGet(NoteFiles::new),
+            Optional.ofNullable(((Json) row.get("subs")))
+                    .map(d -> JsonUtils.deserializeSilentFail(d.asString(), NoteSubs.class))
+                    .orElseGet(NoteSubs::new)
+            )
+        ))
+        .flatMap(notes -> {
+            var uris = notes.stream().map(NoteModel::getUri).toList();
+            var transformers = notes.stream()
+                .map(this::toView);
             if(!indexableWords.isEmpty()) {
-                conditions.add("note.id IN (SELECT note_id FROM note_word LEFT JOIN word on word.id = note_word.word_id WHERE word.word in ('" + join("','", indexableWords.stream().map(Word::word).collect(Collectors.toSet())) + "'))");
+                transformers = transformers.map(view -> highlight(view, indexableWords));
             }
-            final StringBuilder sql = new StringBuilder("SELECT id, uri, valeur, created_at, source_id, files, subs from note ");
-            if(!conditions.isEmpty()) {
-                sql.append(" WHERE ");
-                sql.append(join(" AND ", conditions));
-            }
-            sql.append(" ORDER BY created_at DESC OFFSET ");
-            sql.append(pageAndSort.offset());
-            sql.append(" LIMIT ");
-            sql.append(pageAndSort.count());
-            logger.debug("Start executing request");
-            final long start = System.currentTimeMillis();
-            var views = orEmptyList(
-                Flux.from(connection.createStatement(sql.toString()).execute())
-                .doFinally((st) -> {
-                    logger.debug("Search request executed (took {}ms)", (System.currentTimeMillis() - start));
-                    Mono.from(connection.close()).subscribe();
-                })
-                .flatMap(result -> result.map((row, meta) -> new NoteModel(
-                    row.get("id", Long.class),
-                    row.get("uri", String.class),
-                    row.get("valeur", String.class),
-                    row.get("created_at", Instant.class),
-                    row.get("source_id", Long.class),
-                    Optional.ofNullable(row.get("files", String.class))
-                        .map(d -> JsonUtils.deserializeSilentFail(d, NoteFiles.class))
-                        .orElseGet(NoteFiles::new),
-                    Optional.ofNullable(row.get("subs", String.class))
-                            .map(d -> JsonUtils.deserializeSilentFail(d, NoteSubs.class))
-                            .orElseGet(NoteSubs::new)
-                )))
-            ).flatMap(notes -> {
-                var uris = notes.stream().map(NoteModel::getUri).toList();
-                var transformers = notes.stream()
-                    .map(this::toView);
-                if(!indexableWords.isEmpty()) {
-                    transformers = transformers.map(view -> highlight(view, indexableWords));
-                }
-                final var transformed = transformers.collect(Collectors.toList());
-                return Mono.zip(transformed, aggregat -> Arrays.stream(aggregat).map(a -> (NoteView)a).collect(Collectors.toList()))
-                    .map(unorderdNoteViews -> {
-                        final List<NoteView> sorted = new ArrayList<>(unorderdNoteViews);
-                        sorted.sort(Comparator.comparingInt(h -> uris.indexOf(h.uri())));
-                        return sorted;
-                    });
-            }).switchIfEmpty(defer(() -> Mono.just(Collections.emptyList())));
-            return ok().body(views, NoteView.class);
-        });
+            final var transformed = transformers.collect(Collectors.toList());
+            return Mono.zip(transformed, aggregat -> Arrays.stream(aggregat).map(a -> (NoteView)a).collect(Collectors.toList()))
+                .map(unorderdNoteViews -> {
+                    final List<NoteView> sorted = new ArrayList<>(unorderdNoteViews);
+                    sorted.sort(Comparator.comparingInt(h -> uris.indexOf(h.uri())));
+                    return sorted;
+                });
+        }).switchIfEmpty(defer(() -> Mono.just(Collections.emptyList())));
+        return ok().body(views, NoteView.class);
     }
 
     private Mono<NoteView> highlight(Mono<NoteView> noteViewMono, final Set<Word> highlights) {
