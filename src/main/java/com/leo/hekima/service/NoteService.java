@@ -12,7 +12,6 @@ import com.leo.hekima.repository.*;
 import com.leo.hekima.to.*;
 import com.leo.hekima.utils.*;
 import io.r2dbc.postgresql.codec.Json;
-import io.r2dbc.spi.ConnectionFactory;
 import org.apache.commons.collections4.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,7 +66,6 @@ public class NoteService {
     private final NoteTagRepository noteTagRepository;
     private final TagRepository tagRepository;
     private final SourceRepository sourceRepository;
-    private final ConnectionFactory connectionFactory;
     private final File dataDir;
     private final String googleCredentialsPath;
     private ImageAnnotatorClient vision;
@@ -82,7 +80,6 @@ public class NoteService {
     public NoteService(NoteRepository noteRepository,
                        NoteTagRepository noteTagRepository, TagRepository tagRepository,
                        SourceRepository sourceRepository,
-                       ConnectionFactory connectionFactory,
                        @Value("${google.credentials}") final String googleCredentialsPath,
                        @Value("${data.dir}") final String dataDirPath,
                        @Value("${subs.videoclipper.url}") final String videoClipperUrl, WordAnalyzer wordAnalyzer,
@@ -91,7 +88,6 @@ public class NoteService {
         this.noteTagRepository = noteTagRepository;
         this.tagRepository = tagRepository;
         this.sourceRepository = sourceRepository;
-        this.connectionFactory = connectionFactory;
         this.dataDir = new File(dataDirPath);
         this.googleCredentialsPath = googleCredentialsPath;
         this.webClient = WebClient.create(videoClipperUrl);
@@ -139,13 +135,10 @@ public class NoteService {
             conditions.add("s.uri IN ('" + String.join("','", sources) + "')");
         }
         final String request = baseRequest + (CollectionUtils.isEmpty(conditions) ? "" : " WHERE ") + String.join(" AND ", conditions);
-        Mono<Integer> countNotes = Mono.from(connectionFactory.create()).flatMap(connection ->
-            orEmptyList(Flux.from(connection.createStatement(request).execute())
-                    .doFinally((st) -> Mono.from(connection.close()).subscribe())
-                    .flatMap(result -> result.map((row, meta) -> row.get("notecount", Long.class).intValue())))
-                    .map(counts -> isEmpty(counts) ? 0 : counts.get(0))
-            )
-            .switchIfEmpty(Mono.just(0));
+        final Mono<Long> countNotes = r2dbcEntityTemplate.getDatabaseClient().sql(request)
+                .map(row -> row.get("notecount", Long.class))
+                .one()
+                .switchIfEmpty(Mono.just(0L));
         return WebUtils.ok().body(countNotes, Long.class);
     }
 
