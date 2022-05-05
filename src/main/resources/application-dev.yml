@@ -1,6 +1,3 @@
-db:
-  port: 5432
-  password: JeK1ffeMesNotes2!
 data:
   dir: /opt/projetcs/ich/hekima/data
 

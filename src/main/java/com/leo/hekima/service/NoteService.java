@@ -108,6 +108,7 @@ public class NoteService {
         if(!this.dataDir.canWrite()) {
             throw new UnrecoverableServiceException("Data dir path " + dataDirPath + " is not writable");
         }
+        logger.info("Video clipper is at {}", videoClipperUrl);
         initVision();
     }
 
