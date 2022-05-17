@@ -10,6 +10,6 @@ import static com.leo.hekima.utils.WebUtils.ok;
 @Service
 public class VersionService {
     public Mono<ServerResponse> getVersion(ServerRequest serverRequest) {
-        return ok().bodyValue("202202102133");
+        return ok().bodyValue("20220516H1749");
     }
 }

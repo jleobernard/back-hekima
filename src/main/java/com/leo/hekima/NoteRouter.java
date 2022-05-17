@@ -59,8 +59,7 @@ public class NoteRouter {
     }
 
     private RouterFunction<ServerResponse> routeServices(VersionService versionService, RouterFunction<ServerResponse> f) {
-        return RouterFunctions
-                .route(GET("/api/version").and(accept(MediaType.APPLICATION_JSON)), versionService::getVersion);
+        return f.andRoute(GET("/api/version").and(accept(MediaType.APPLICATION_JSON)), versionService::getVersion);
     }
 
     private RouterFunction<ServerResponse> routeSubs(SubsService subsService) {

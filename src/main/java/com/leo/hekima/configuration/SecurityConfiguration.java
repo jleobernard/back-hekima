@@ -3,22 +3,31 @@ package com.leo.hekima.configuration;
 import com.leo.hekima.service.JwtTokenProvider;
 import com.leo.hekima.service.UserService;
 import com.leo.hekima.web.JwtTokenAuthenticationFilter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.authentication.UserDetailsRepositoryReactiveAuthenticationManager;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.SecurityWebFiltersOrder;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.ServerAuthenticationEntryPoint;
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
+import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Mono;
 
 import java.security.SecureRandom;
 
 @EnableWebFluxSecurity
 public class SecurityConfiguration {
 
+    private Logger logger = LoggerFactory.getLogger(SecurityConfiguration.class);
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -50,6 +59,16 @@ public class SecurityConfiguration {
             ).permitAll()
             .anyExchange().authenticated()
             .and()
+            .exceptionHandling(exceptionHandlingSpec -> exceptionHandlingSpec.authenticationEntryPoint((exchange, ex) -> {
+                logger.info("Received exception", ex);
+                final String message = ex.getMessage().toLowerCase();
+                if(message.contains("not authenticated")) {
+                    exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+                } else {
+                    exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
+                }
+                return Mono.empty();
+            }))
             .addFilterAt(new JwtTokenAuthenticationFilter(tokenProvider), SecurityWebFiltersOrder.HTTP_BASIC)
             .build();
     }

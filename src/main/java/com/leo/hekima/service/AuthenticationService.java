@@ -7,6 +7,8 @@ import com.leo.hekima.to.AuthenticationRequest;
 import com.leo.hekima.to.AuthenticationResponse;
 import com.leo.hekima.to.RefreshRequest;
 import org.apache.commons.lang3.tuple.Triple;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.util.Pair;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -26,6 +28,7 @@ import static org.springframework.web.reactive.function.BodyExtractors.toMono;
 
 @Service
 public class AuthenticationService {
+    private final Logger logger = LoggerFactory.getLogger(AuthenticationService.class);
     private final JwtTokenProvider jwtTokenProvider;
     private final ReactiveAuthenticationManager authenticationManager;
     private final RefreshTokenRepository refreshTokenRepository;
@@ -42,9 +45,11 @@ public class AuthenticationService {
     @Transactional
     public Mono<ServerResponse> authenticate(ServerRequest serverRequest) {
         return serverRequest.body(toMono(AuthenticationRequest.class))
-        .flatMap(request ->
-                authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(request.username(), request.password()))
-                    .map(authentication -> Pair.of(((User) authentication.getPrincipal()).getUsername(), jwtTokenProvider.createToken(authentication)))
+        .flatMap(request -> {
+            logger.info("Authenticating user {}", request.username());
+            return authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(request.username(), request.password()))
+                    .map(authentication -> Pair.of(((User) authentication.getPrincipal()).getUsername(), jwtTokenProvider.createToken(authentication)));
+                }
         )
         .flatMap(authAndJwt -> userRepository.findByUri(authAndJwt.getFirst()).map(user -> Pair.of(user, authAndJwt.getSecond())))
         .flatMap(userAndAccessToken -> refreshTokenRepository.save(
