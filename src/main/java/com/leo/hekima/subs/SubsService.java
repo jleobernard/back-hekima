@@ -3,6 +3,8 @@ package com.leo.hekima.subs;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import com.leo.hekima.exception.UnrecoverableServiceException;
+import com.leo.hekima.to.SubsSearchPatternElement;
+import com.leo.hekima.to.SubsSearchRequest;
 import com.leo.hekima.utils.RequestUtils;
 import com.leo.hekima.utils.StringUtils;
 import com.leo.hekima.utils.WebUtils;
@@ -85,6 +87,7 @@ public class SubsService {
 
     public Mono<ServerResponse> search(final ServerRequest serverRequest) {
         final String query = serverRequest.queryParam("q").orElse("");
+        final SubsSearchRequest subsSearchRequest = parseQuery(serverRequest);
         final float minSimilarity = Float.parseFloat(serverRequest.queryParam("minSim").orElse("0.75"));
         final float maxSimilarity = Float.parseFloat(serverRequest.queryParam("maxSim").orElse("1"));
         final boolean excludeMax = Boolean.parseBoolean(serverRequest.queryParam("exclMax").orElse("false"));
@@ -112,6 +115,38 @@ public class SubsService {
         })
         .collect(Collectors.toList());
         return WebUtils.ok().bodyValue(results);
+    }
+
+    public static SubsSearchRequest parseQuery(ServerRequest serverRequest) {
+        final String q = serverRequest.queryParam("q").orElse("");
+        return new SubsSearchRequest(q, serverRequest.queryParam("exact").map(Boolean::parseBoolean).orElse(false), parseQueryElements(q));
+    }
+
+    public static SubsSearchPatternElement[] parseQueryElements(final String q) {
+        if(org.apache.commons.lang3.StringUtils.isBlank(q)) {
+            return new SubsSearchPatternElement[0];
+        }
+        final String[] splitted = q.trim().split("\\+");
+        SubsSearchPatternElement[] parsed = new SubsSearchPatternElement[splitted.length];
+        for (int i = 0; i < splitted.length; i++) {
+            final String[] alternativesAndTag = splitted[i].split(":", 2);
+            final String[] alternatives;
+            final String posTag;
+            switch (alternativesAndTag.length) {
+                case 0 -> throw new IllegalArgumentException("query.element.empty." + i);
+                case 1 -> {
+                    alternatives = alternativesAndTag[0].split("/");
+                    posTag = "";
+                }
+                case 2 -> {
+                    alternatives = alternativesAndTag[0].split("/");
+                    posTag = alternativesAndTag[1].trim();
+                }
+                default -> throw new IllegalArgumentException("should.never.happen.because.of.split.limit");
+            }
+            parsed[i] = new SubsSearchPatternElement(alternatives, posTag);
+        }
+        return parsed;
     }
 
     private List<SubsDbEntry> loadSubsFromFile(final File csvFile) {
