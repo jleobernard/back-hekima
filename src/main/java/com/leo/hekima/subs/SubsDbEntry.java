@@ -6,14 +6,21 @@ public record SubsDbEntry(String videoName,
                           String subs,
                           float fromTs,
                           float toTs,
-                          List<PosTag> tags) {
-    public boolean hasEveryWord(SubsDbEntry entry, List<PosTag> fixWords) {
-        for (PosTag fixWord : fixWords) {
+                          List<SentenceElement> tags) {
+    /*public boolean hasEveryWord(SubsDbEntry entry, List<SentenceElement> fixWords) {
+        for (SentenceElement fixWord : fixWords) {
+            if(fixWord.value().isEmpty()) {
+                continue;;
+            }
             var found = false;
-            for (PosTag tag : entry.tags) {
-                if(tag.value().equals(fixWord.value())) {
-                    found = true;
-                    break;
+            for (SentenceElement tag : entry.tags) {
+                final var fixedValues = fixWord.value().get();
+                for (String fixedValue : fixedValues) {
+                    // We only test the first element because db entries surely has no alternatives
+                    if(tag.value().get()[0].equals(fixedValue)) {
+                        found = true;
+                        break;
+                    }
                 }
             }
             if(!found) {
@@ -21,5 +28,5 @@ public record SubsDbEntry(String videoName,
             }
         }
         return true;
-    }
+    }*/
 }

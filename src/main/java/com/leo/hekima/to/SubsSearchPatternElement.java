@@ -1,3 +1,7 @@
 package com.leo.hekima.to;
 
-public record SubsSearchPatternElement(String[] alternatives, String posTag) { }
+import com.leo.hekima.subs.SearchableType;
+
+import java.util.Optional;
+
+public record SubsSearchPatternElement(Optional<String[]> alternatives, Optional<SearchableType> posTag) { }

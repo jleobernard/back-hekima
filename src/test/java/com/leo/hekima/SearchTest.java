@@ -4,7 +4,8 @@ package com.leo.hekima;
 import com.google.common.collect.Multimap;
 import com.leo.hekima.subs.IndexEntry;
 import com.leo.hekima.subs.IndexWithScoreAndZone;
-import com.leo.hekima.subs.PosTag;
+import com.leo.hekima.subs.Sentence;
+import com.leo.hekima.subs.SentenceElement;
 import kr.co.shineware.nlp.komoran.constant.DEFAULT_MODEL;
 import kr.co.shineware.nlp.komoran.core.Komoran;
 import org.junit.jupiter.api.Test;
@@ -25,17 +26,20 @@ public class SearchTest {
         );
         final String q = "잘 지내셨어요";
         final Komoran komoran = new Komoran(DEFAULT_MODEL.FULL);
-        final List<PosTag> analyzedQuery = toSentence(q, komoran);
-        final List<List<PosTag>> corpus = haystack.stream().map(h -> toSentence(h, komoran)).collect(Collectors.toList());
+        final List<SentenceElement> analyzedQuery = toSentences(/*q*/ null, komoran).get(0).elements();
+        final List<List<SentenceElement>> corpus =
+            haystack.stream().map(h -> toSentences(/*h*/ null, komoran).get(0).elements()).collect(Collectors.toList());
         System.out.println("Analysis for the query :");
         System.out.println(analyzedQuery);
         System.out.println("Analysis for the haystack :");
         System.out.println(corpus.get(1));
-        final Multimap<PosTag, IndexEntry> index = index(corpus);
-        final List<Integer> firstCandidates = findFixMatches(analyzedQuery, index, 0.5f);
+        final Multimap<SentenceElement, IndexEntry> index = index(corpus);
+        final List<Integer> firstCandidates = findFixMatches(/*analyzedQuery*/ null, index, 0.5f);
         System.out.println("Candidates are :");
         System.out.println(firstCandidates);
-        final List<IndexWithScoreAndZone> matches = scoreSentencesAgainstQuery(analyzedQuery, firstCandidates, corpus);
+        final List<IndexWithScoreAndZone> matches = scoreSentencesAgainstQuery(new Sentence(analyzedQuery),
+            firstCandidates,
+            corpus);
         System.out.println("Matches are : ");
         System.out.println(matches);
     }

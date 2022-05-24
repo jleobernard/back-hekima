@@ -27,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -38,7 +39,7 @@ public class SubsService {
     private static final Logger logger = LoggerFactory.getLogger(SubsService.class);
     private final Komoran komoran;
     private List<SubsDbEntry> corpus;
-    private Multimap<PosTag, IndexEntry> db = HashMultimap.create(1, 1);
+    private Multimap<SentenceElement, IndexEntry> db = HashMultimap.create(1, 1);
     private final String subsStorePath;
 
     public SubsService(@Value("${subs.store.path}") final String subsStorePath) {
@@ -55,7 +56,7 @@ public class SubsService {
         ensureExistsAndReadable(subsStore);
         final File[] directories = subsStore.listFiles(File::isDirectory);
         final var corpus = new ArrayList<SubsDbEntry>();
-        Multimap<PosTag, IndexEntry> db = HashMultimap.create();
+        Multimap<SentenceElement, IndexEntry> db = HashMultimap.create();
         if(directories != null) {
             for (File directory : directories) {
                 final String prefix = directory.getName();
@@ -81,45 +82,51 @@ public class SubsService {
 
     public Mono<ServerResponse> explain(final ServerRequest serverRequest) {
         final String query = serverRequest.queryParam("q").orElse("");
-        final List<PosTag> analyzedQuery = toSentence(query, komoran);
-        return WebUtils.ok().bodyValue(analyzedQuery);
+        //final List<PosTag> analyzedQuery = toSentence(query, komoran);
+        //return WebUtils.ok().bodyValue(analyzedQuery);
+        return null;
     }
 
     public Mono<ServerResponse> search(final ServerRequest serverRequest) {
         final String query = serverRequest.queryParam("q").orElse("");
         final SubsSearchRequest subsSearchRequest = parseQuery(serverRequest);
-        final float minSimilarity = Float.parseFloat(serverRequest.queryParam("minSim").orElse("0.75"));
-        final float maxSimilarity = Float.parseFloat(serverRequest.queryParam("maxSim").orElse("1"));
-        final boolean excludeMax = Boolean.parseBoolean(serverRequest.queryParam("exclMax").orElse("false"));
         logger.debug("Looking for {}", query);
-        final List<PosTag> analyzedQuery = toSentence(query, komoran);
-        final float minScore = getMaxScore(analyzedQuery) * minSimilarity;
-        final float maxScore = getMaxScore(analyzedQuery) * maxSimilarity;
-        final List<Integer> firstCandidates = findFixMatches(analyzedQuery, this.db, minSimilarity);
-        final List<IndexWithScoreAndZone> matches = scoreSentencesAgainstQuery(analyzedQuery, firstCandidates,
+        final List<Sentence> analyzedQueries = toSentences(subsSearchRequest, komoran);
+        final List<IndexWithScoreAndZone> results = new ArrayList<>();
+        for (Sentence analyzedQuery : analyzedQueries) {
+            final SubsSearchProblem problem = new SubsSearchProblem(subsSearchRequest, analyzedQuery,
+                getMaxScore(analyzedQuery) * subsSearchRequest.minSimilarity(),
+                getMaxScore(analyzedQuery) * subsSearchRequest.maxSimilarity()
+            );
+            final List<Integer> firstCandidates = findFixMatches(problem, this.db, problem.request().minSimilarity());
+            final List<IndexWithScoreAndZone> matches = scoreSentencesAgainstQuery(analyzedQuery, firstCandidates,
                 this.corpus.stream().map(SubsDbEntry::tags).collect(Collectors.toList()));
-        final List<SubsEntryView> results = matches.stream()
-        .filter(m -> m.score() >= minScore && (excludeMax ? m.score() < maxScore : m.score() <= maxScore))
-        .sorted((m1, m2) -> {
-            float delta = m2.score() - m1.score();
-            if(delta < 0) {
-                return -1;
-            } if(delta > 0) {
-                return 1;
-            }
-            return 0;
-        })
-        .map(m -> {
-            final SubsDbEntry sub = this.corpus.get(m.sentenceIndex());
-            return new SubsEntryView(sub.videoName(), sub.subs(), sub.fromTs(), sub.toTs(), m.from(), m.to());
-        })
-        .collect(Collectors.toList());
-        return WebUtils.ok().bodyValue(results);
+            results.addAll(matches.stream()
+                .filter(m -> m.score() >= problem.minScore() && (problem.request().excludeMax()) ?
+                    m.score() < problem.maxScore() : m.score() <= problem.maxScore()).toList());
+        }
+        return WebUtils.ok().bodyValue(results.stream().sorted((m1, m2) -> {
+                float delta = m2.score() - m1.score();
+                if(delta < 0) {
+                    return -1;
+                } if(delta > 0) {
+                    return 1;
+                }
+                return 0;
+            })
+            .map(m -> {
+                final SubsDbEntry sub = this.corpus.get(m.sentenceIndex());
+                return new SubsEntryView(sub.videoName(), sub.subs(), sub.fromTs(), sub.toTs(), m.from(), m.to());
+            }));
     }
 
     public static SubsSearchRequest parseQuery(ServerRequest serverRequest) {
         final String q = serverRequest.queryParam("q").orElse("");
-        return new SubsSearchRequest(q, serverRequest.queryParam("exact").map(Boolean::parseBoolean).orElse(false), parseQueryElements(q));
+        final float minSimilarity = Float.parseFloat(serverRequest.queryParam("minSim").orElse("0.75"));
+        final float maxSimilarity = Float.parseFloat(serverRequest.queryParam("maxSim").orElse("1"));
+        final boolean excludeMax = Boolean.parseBoolean(serverRequest.queryParam("exclMax").orElse("false"));
+        return new SubsSearchRequest(q, serverRequest.queryParam("exact").map(Boolean::parseBoolean).orElse(false),
+                parseQueryElements(q), minSimilarity, maxSimilarity, excludeMax);
     }
 
     public static SubsSearchPatternElement[] parseQueryElements(final String q) {
@@ -144,7 +151,11 @@ public class SubsService {
                 }
                 default -> throw new IllegalArgumentException("should.never.happen.because.of.split.limit");
             }
-            parsed[i] = new SubsSearchPatternElement(alternatives, posTag);
+            parsed[i] =
+                new SubsSearchPatternElement((alternatives == null || alternatives.length == 0 ||
+                    (alternatives.length == 1 && org.apache.commons.lang3.StringUtils.isEmpty(alternatives[0]))) ?
+                    Optional.empty() : Optional.of(alternatives),
+                SearchableType.fromTag(posTag));
         }
         return parsed;
     }
@@ -155,12 +166,12 @@ public class SubsService {
             List<String[]> lines = reader.readAll();
             return lines.stream().skip(1)
                 .map(line -> {
-                    List<PosTag> tags = new ArrayList<>();
+                    List<SentenceElement> tags = new ArrayList<>();
                     for (int i = 3; i < line.length - 1; i+=2) {
                         final String content = line[i];
                         if(StringUtils.isNotEmpty(content)) {
                             String type = line[i + 1];
-                            tags.add(new PosTag(content, isEmpty(type) ? "???" : type.trim()));
+                            tags.add(new SentenceElement(content, isEmpty(type) ? "???" : type.trim()));
                         } else {
                             break;
                         }
@@ -189,16 +200,16 @@ public class SubsService {
         reloadDb();
         return WebUtils.ok().bodyValue("done");
     }
-    public static Multimap<PosTag, IndexEntry> index(final List<SubsDbEntry> corpus) {
-        final Multimap<PosTag, IndexEntry> db = HashMultimap.create();
+    public static Multimap<SentenceElement, IndexEntry> index(final List<SubsDbEntry> corpus) {
+        final Multimap<SentenceElement, IndexEntry> db = HashMultimap.create();
         for (int i = 0; i < corpus.size(); i++) {
-            final List<PosTag> sentence = corpus.get(i).tags();
+            final List<SentenceElement> sentence = corpus.get(i).tags();
             for (int indexTag = 0; indexTag < sentence.size(); indexTag++) {
-                final PosTag posTag = sentence.get(indexTag);
-                if(isEmpty(posTag.type())) {
-                    logger.info("{} has no type", posTag);
+                final SentenceElement sentenceElement = sentence.get(indexTag);
+                if(isEmpty(sentenceElement.type())) {
+                    logger.info("{} has no type", sentenceElement);
                 } else {
-                    db.put(posTag, new IndexEntry(i, indexTag));
+                    db.put(sentenceElement, new IndexEntry(i, indexTag));
                 }
             }
         }
