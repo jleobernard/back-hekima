@@ -1,13 +1,24 @@
 package com.leo.hekima;
 
 import com.leo.hekima.subs.SearchableType;
+import com.leo.hekima.subs.SubsSearchProblem;
+import com.leo.hekima.to.SubsSearchRequest;
+import kr.co.shineware.nlp.komoran.constant.DEFAULT_MODEL;
+import kr.co.shineware.nlp.komoran.core.Komoran;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
+import static com.leo.hekima.subs.SearchPattern.*;
+import static com.leo.hekima.subs.SubsService.createDbFromSentences;
 import static com.leo.hekima.subs.SubsService.parseQueryElements;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class SubsServiceTest {
+
+    private static final Komoran tagger = new Komoran(DEFAULT_MODEL.FULL);
+
     @Test
     public void testParseEmptyQuery() {
         assertEquals(0, parseQueryElements("").length);
@@ -61,6 +72,56 @@ public class SubsServiceTest {
         assertEquals(1, parsed[i].alternatives().get().length);
         assertEquals("이다", parsed[i].alternatives().get()[0]);
         assertTrue(parsed[i].posTag().isEmpty());
+    }
+
+    @Test
+    public void testFindFixMatchesNominal() {
+        final var db = createDbFromSentences(
+            "학생들은 바보",
+            "우리는 예술가입니다",
+            "나는 TV를보고 있어요",
+            "저는 학생입니다"
+        );
+        SubsSearchProblem problem = toProblem("학생+입니다", 0.9f);
+        List<Integer> matches = findFixMatches(problem, db);
+        assertEquals(1, matches.size());
+        assertEquals(3, matches.get(0));
+
+        problem = toProblem("학생+입니다", 0.5f);
+        matches = findFixMatches(problem, db);
+        assertTrue(matches.contains(3));
+        assertTrue(matches.contains(0));
+        assertTrue(matches.contains(1));
+    }
+
+    @Test
+    public void testFindFixMatchesWithPlaceHolders() {
+        final var db = createDbFromSentences(
+            "학생들은 바보",
+            "우리는 예술가입니다",
+            "나는 TV를보고 있어요",
+            "저는 학생입니다"
+        );
+        SubsSearchProblem problem = toProblem(":N+입니다", 0.5f);
+        List<Integer> matches = findFixMatches(problem, db);
+        assertEquals(2, matches.size());
+        assertTrue(matches.contains(3));
+        assertTrue(matches.contains(1));
+    }
+
+    public static SubsSearchProblem toProblem(final String q) {
+        return toProblem(q, 0.75f);
+    }
+    public static SubsSearchProblem toProblem(final String q, final float miniSimilarity) {
+        final var elts = parseQueryElements(q);
+        final var query = new SubsSearchRequest(q, false, elts, miniSimilarity, 1f, false);
+        final var sentence = toSentences(query, tagger).get(0);
+        return new SubsSearchProblem(
+            query,
+            sentence,
+            getMaxScore(sentence) * query.minSimilarity(),
+            getMaxScore(sentence) * query.maxSimilarity()
+        );
     }
 
 }

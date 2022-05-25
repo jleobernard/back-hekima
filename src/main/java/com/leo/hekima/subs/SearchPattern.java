@@ -236,21 +236,26 @@ public class SearchPattern {
     }
 
 
+    /**
+     * @param problem Problem related to the query to execute
+     * @param index database in which to search for similarities
+     * @return ids of the entries that are potential matches, i.e. ids of the entries that have sufficient
+     * requested fixed values to be able to match the request in best case scenario.
+     */
     public static List<Integer> findFixMatches(final SubsSearchProblem problem,
-                                      final Multimap<SentenceElement, IndexEntry> index,
-                                      final float minSimilarity) {
+                                               final Multimap<SentenceElement, IndexEntry> index) {
         final List<SentenceElement> analyzedQuery = problem.analyzedQuery().elements();
         final Map<Integer, Integer> countBySentenceInCorpus = new HashMap<>();
-        List<SentenceElement> fixParts = analyzedQuery.stream().filter(SearchPattern::isFix).collect(Collectors.toList());
+        List<SentenceElement> fixParts = analyzedQuery.stream().filter(SearchPattern::isFix).toList();
         if(fixParts.isEmpty()){
-            fixParts = analyzedQuery;
+            fixParts = analyzedQuery.stream().filter(elt -> elt.value().isPresent()).toList();
         }
         for (SentenceElement sentenceElement : fixParts) {
             for (IndexEntry indexEntry : index.get(sentenceElement)) {
                 countBySentenceInCorpus.compute(indexEntry.sentenceIndex(), (k,v) -> v == null ? 1 : v + 1);
             }
         }
-        final int minScore = (int)Math.floor(fixParts.size() * problem.request().minSimilarity());
+        final int minScore = (int)Math.ceil(fixParts.size() * problem.request().minSimilarity());
         return countBySentenceInCorpus.entrySet().stream().filter(e -> e.getValue() >= minScore)
             .sorted((e1, e2) -> e2.getValue() - e1.getValue())
             .map(Map.Entry::getKey)
@@ -352,7 +357,7 @@ public class SearchPattern {
     }
 
     public static boolean isFix(SentenceElement extra) {
-        return extra.type().map(type -> {
+        return extra.value().isPresent() && extra.type().map(type -> {
             char firstLetter = type.charAt(0);
             return switch (firstLetter) {
                 case 'S', 'E', 'J', 'X' -> false;

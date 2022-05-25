@@ -1,46 +1,134 @@
 package com.leo.hekima;
 
 
-import com.google.common.collect.Multimap;
-import com.leo.hekima.subs.IndexEntry;
-import com.leo.hekima.subs.IndexWithScoreAndZone;
-import com.leo.hekima.subs.Sentence;
-import com.leo.hekima.subs.SentenceElement;
-import kr.co.shineware.nlp.komoran.constant.DEFAULT_MODEL;
-import kr.co.shineware.nlp.komoran.core.Komoran;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.leo.hekima.subs.SubsEntryView;
+import com.leo.hekima.subs.SubsService;
+import com.leo.hekima.utils.JsonUtils;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.reactive.function.server.RequestPredicates;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.RouterFunctions;
 
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
-import static com.google.common.collect.Lists.newArrayList;
-import static com.leo.hekima.subs.SearchPattern.*;
+import static org.springframework.test.util.AssertionErrors.assertEquals;
+import static org.springframework.test.util.AssertionErrors.assertTrue;
 
 public class SearchTest {
 
+    final SubsService subsService = SubsService.fromMemory("저는 학생입니다",
+        "무서워?",
+        "당신은 집에 갈 수 있습니다",
+        "당신은 배고프다",
+        "그는 여기서 일한다",
+        "나는 포도를 먹을까요");
+
     @Test
-    public void testComplexSearch() {
-        final List<String> haystack = newArrayList(
-                "잘들 지내셨죠?",
-                "잘 지냈어요"
+    public void testSearchFixVerb() {
+        RouterFunction function = RouterFunctions.route(
+            RequestPredicates.GET("/search"),
+            subsService::search
         );
-        final String q = "잘 지내셨어요";
-        final Komoran komoran = new Komoran(DEFAULT_MODEL.FULL);
-        final List<SentenceElement> analyzedQuery = toSentences(/*q*/ null, komoran).get(0).elements();
-        final List<List<SentenceElement>> corpus =
-            haystack.stream().map(h -> toSentences(/*h*/ null, komoran).get(0).elements()).collect(Collectors.toList());
-        System.out.println("Analysis for the query :");
-        System.out.println(analyzedQuery);
-        System.out.println("Analysis for the haystack :");
-        System.out.println(corpus.get(1));
-        final Multimap<SentenceElement, IndexEntry> index = index(corpus);
-        final List<Integer> firstCandidates = findFixMatches(/*analyzedQuery*/ null, index, 0.5f);
-        System.out.println("Candidates are :");
-        System.out.println(firstCandidates);
-        final List<IndexWithScoreAndZone> matches = scoreSentencesAgainstQuery(new Sentence(analyzedQuery),
-            firstCandidates,
-            corpus);
-        System.out.println("Matches are : ");
-        System.out.println(matches);
+
+        WebTestClient
+            .bindToRouterFunction(function)
+            .build().get().uri("/search?q=있다")
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody().consumeWith(data -> {
+                final var results = JsonUtils.deserializeSilentFail(new String(data.getResponseBody()),
+                    new TypeReference<List<SubsEntryView>>(){});
+                assertEquals("Should have found 1 result" , 1, results.size());
+                assertEquals("Sub found is not good", "당신은 집에 갈 수 있습니다", results.get(0).subs());
+            });
+    }
+
+    @Test
+    public void testSearchFixNoun() {
+        RouterFunction function = RouterFunctions.route(
+            RequestPredicates.GET("/search"),
+            subsService::search
+        );
+
+        WebTestClient
+            .bindToRouterFunction(function)
+            .build().get().uri("/search?q=집")
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody().consumeWith(data -> {
+                final var results = JsonUtils.deserializeSilentFail(new String(data.getResponseBody()),
+                    new TypeReference<List<SubsEntryView>>(){});
+                assertEquals("Should have found 1 result" , 1, results.size());
+                assertEquals("Sub found is not good", "당신은 집에 갈 수 있습니다", results.get(0).subs());
+            });
+    }
+
+    @Test
+    public void testSearchAlternative() {
+        RouterFunction function = RouterFunctions.route(
+            RequestPredicates.GET("/search"),
+            subsService::search
+        );
+
+        WebTestClient
+            .bindToRouterFunction(function)
+            .build().get().uri("/search?q=집/학생")
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody().consumeWith(data -> {
+                final var results = JsonUtils.deserializeSilentFail(new String(data.getResponseBody()),
+                    new TypeReference<List<SubsEntryView>>(){});
+                assertEquals("Should have found 2 results" , 2, results.size());
+                final Set<String> subs = results.stream().map(SubsEntryView::subs).collect(Collectors.toSet());
+                assertTrue("Should have found this one", subs.contains("당신은 집에 갈 수 있습니다"));
+                assertTrue("Should have found this one", subs.contains("저는 학생입니다"));
+            });
+    }
+
+    @Test
+    public void testSearchVerbstemWithEnding() {
+        RouterFunction function = RouterFunctions.route(
+            RequestPredicates.GET("/search"),
+            subsService::search
+        );
+
+        WebTestClient
+            .bindToRouterFunction(function)
+            .build().get().uri(uriBuilder ->  uriBuilder.path("/search").queryParam("q","{pattern}").build(":V+습니다"))
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody().consumeWith(data -> {
+                final var results = JsonUtils.deserializeSilentFail(new String(data.getResponseBody()),
+                    new TypeReference<List<SubsEntryView>>(){});
+                assertEquals("Should have found 1 results" , 1, results.size());
+                final Set<String> subs = results.stream().map(SubsEntryView::subs).collect(Collectors.toSet());
+                assertTrue("Should have found this one", subs.contains("당신은 집에 갈 수 있습니다"));
+            });
+    }
+
+    @Test
+    public void testSearchComplex() {
+        RouterFunction function = RouterFunctions.route(
+            RequestPredicates.GET("/search"),
+            subsService::search
+        );
+
+        WebTestClient
+            .bindToRouterFunction(function)
+            .build().get().uri(uriBuilder ->  uriBuilder.path("/search").queryParam("q","{pattern}").build(":V" +
+                "+ㄹ/을/를+까요"))
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody().consumeWith(data -> {
+                final var results = JsonUtils.deserializeSilentFail(new String(data.getResponseBody()),
+                    new TypeReference<List<SubsEntryView>>(){});
+                assertEquals("Should have found 1 results" , 1, results.size());
+                final Set<String> subs = results.stream().map(SubsEntryView::subs).collect(Collectors.toSet());
+                assertTrue("Should have found this one", subs.contains("나는 포도를 먹을까요"));
+            });
     }
 }

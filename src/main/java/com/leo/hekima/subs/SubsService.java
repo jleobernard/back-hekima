@@ -15,6 +15,7 @@ import kr.co.shineware.nlp.komoran.core.Komoran;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.util.Pair;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
@@ -24,31 +25,44 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.leo.hekima.subs.SearchPattern.*;
+import static com.leo.hekima.subs.SearchPattern.index;
 import static org.apache.commons.lang3.ObjectUtils.isEmpty;
 
 @Component
 public class SubsService {
     private static final Logger logger = LoggerFactory.getLogger(SubsService.class);
-    private final Komoran komoran;
+    public static final Komoran komoran = new Komoran(DEFAULT_MODEL.FULL);
     private List<SubsDbEntry> corpus;
     private Multimap<SentenceElement, IndexEntry> db = HashMultimap.create(1, 1);
     private final String subsStorePath;
 
     public SubsService(@Value("${subs.store.path}") final String subsStorePath) {
-        logger.info("Loading Komoran...");
-        this.komoran = new Komoran(DEFAULT_MODEL.FULL);
-        logger.info("Komoran loaded");
         this.corpus = Collections.emptyList();
         this.subsStorePath = subsStorePath;
-        reloadDb();
+        if(subsStorePath != null) {
+            reloadDb();
+        }
+    }
+
+    public static SubsService fromMemory(final String... haystack) {
+        final SubsService ss = new SubsService(null);
+        final List<Pair<String, List<SentenceElement>>> entries = Arrays.stream(haystack)
+            .map(line ->
+                Pair.of(line, komoran.analyze(line).getList().stream()
+                    .map(elt -> new SentenceElement(Optional.of(elt.getFirst()), Optional.of(elt.getSecond())))
+                    .toList()
+                )
+            ).toList();
+        ss.corpus = entries.stream().map(_entries ->
+            new SubsDbEntry("in-mem", _entries.getFirst(), -1, -1, _entries.getSecond())
+        ).toList();
+        ss.db = index(ss.corpus);
+        return ss;
     }
 
     public void reloadDb() {
@@ -98,7 +112,7 @@ public class SubsService {
                 getMaxScore(analyzedQuery) * subsSearchRequest.minSimilarity(),
                 getMaxScore(analyzedQuery) * subsSearchRequest.maxSimilarity()
             );
-            final List<Integer> firstCandidates = findFixMatches(problem, this.db, problem.request().minSimilarity());
+            final List<Integer> firstCandidates = findFixMatches(problem, this.db);
             final List<IndexWithScoreAndZone> matches = scoreSentencesAgainstQuery(analyzedQuery, firstCandidates,
                 this.corpus.stream().map(SubsDbEntry::tags).collect(Collectors.toList()));
             results.addAll(matches.stream()
@@ -247,5 +261,15 @@ public class SubsService {
 
     private SubsTextView toText(final SubsDbEntry subsDbEntry) {
         return new SubsTextView(subsDbEntry.subs(), subsDbEntry.fromTs(), subsDbEntry.toTs());
+    }
+
+    public static Multimap<SentenceElement, IndexEntry> createDbFromSentences(final String... corpus) {
+        final List<List<SentenceElement>> entries = Arrays.stream(corpus)
+            .map(line ->
+                komoran.analyze(line).getList().stream()
+                    .map(elt -> new SentenceElement(Optional.of(elt.getFirst()), Optional.of(elt.getSecond())))
+                    .toList()
+            ).toList();
+        return SearchPattern.index(entries);
     }
 }
