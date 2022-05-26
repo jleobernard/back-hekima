@@ -31,6 +31,7 @@ import java.util.stream.Stream;
 
 import static com.leo.hekima.subs.SearchPattern.*;
 import static com.leo.hekima.subs.SearchPattern.index;
+import static com.leo.hekima.utils.WebUtils.ok;
 import static org.apache.commons.lang3.ObjectUtils.isEmpty;
 
 @Component
@@ -103,35 +104,49 @@ public class SubsService {
 
     public Mono<ServerResponse> search(final ServerRequest serverRequest) {
         final String query = serverRequest.queryParam("q").orElse("");
-        final SubsSearchRequest subsSearchRequest = parseQuery(serverRequest);
-        logger.debug("Looking for {}", query);
-        final List<Sentence> analyzedQueries = toSentences(subsSearchRequest, komoran);
-        final List<IndexWithScoreAndZone> results = new ArrayList<>();
-        for (Sentence analyzedQuery : analyzedQueries) {
-            final SubsSearchProblem problem = new SubsSearchProblem(subsSearchRequest, analyzedQuery,
-                getMaxScore(analyzedQuery) * subsSearchRequest.minSimilarity(),
-                getMaxScore(analyzedQuery) * subsSearchRequest.maxSimilarity()
-            );
-            final List<Integer> firstCandidates = findFixMatches(problem, this.db);
-            final List<IndexWithScoreAndZone> matches = scoreSentencesAgainstQuery(analyzedQuery, firstCandidates,
-                this.corpus.stream().map(SubsDbEntry::tags).collect(Collectors.toList()));
-            results.addAll(matches.stream()
-                .filter(m -> m.score() >= problem.minScore() && (problem.request().excludeMax()) ?
-                    m.score() < problem.maxScore() : m.score() <= problem.maxScore()).toList());
+        final boolean exactQuery = serverRequest.queryParam("exact").map(Boolean::parseBoolean).orElse(false);
+        if(exactQuery) {
+            final var hints = corpus.stream().filter(c -> c.subs().contains(query));
+            return ok().bodyValue(hints.distinct()
+                .map(sub -> {
+                    final var subValue = sub.subs();
+                    final int indexMatch = subValue.indexOf(query);
+                    return new SubsEntryView(sub.videoName(), subValue, sub.fromTs(), sub.toTs(), indexMatch,
+                        indexMatch + query.length());
+                })
+                .collect(Collectors.toList()));
+        } else {
+            final SubsSearchRequest subsSearchRequest = parseQuery(serverRequest);
+            logger.debug("Looking for {}", query);
+            final List<Sentence> analyzedQueries = toSentences(subsSearchRequest, komoran);
+            final List<IndexWithScoreAndZone> results = new ArrayList<>();
+            for (Sentence analyzedQuery : analyzedQueries) {
+                final SubsSearchProblem problem = new SubsSearchProblem(subsSearchRequest, analyzedQuery,
+                    getMaxScore(analyzedQuery) * subsSearchRequest.minSimilarity(),
+                    getMaxScore(analyzedQuery) * subsSearchRequest.maxSimilarity()
+                );
+                final List<Integer> firstCandidates = findFixMatches(problem, this.db);
+                final List<IndexWithScoreAndZone> matches = scoreSentencesAgainstQuery(analyzedQuery, firstCandidates,
+                    this.corpus.stream().map(SubsDbEntry::tags).collect(Collectors.toList()));
+                results.addAll(matches.stream()
+                    .filter(m -> m.score() >= problem.minScore() && (problem.request().excludeMax()) ?
+                        m.score() < problem.maxScore() : m.score() <= problem.maxScore()).toList());
+            }
+            return ok().bodyValue(results.stream().sorted((m1, m2) -> {
+                    float delta = m2.score() - m1.score();
+                    if (delta < 0) {
+                        return -1;
+                    }
+                    if (delta > 0) {
+                        return 1;
+                    }
+                    return 0;
+                })
+                .map(m -> {
+                    final SubsDbEntry sub = this.corpus.get(m.sentenceIndex());
+                    return new SubsEntryView(sub.videoName(), sub.subs(), sub.fromTs(), sub.toTs(), m.from(), m.to());
+                }));
         }
-        return WebUtils.ok().bodyValue(results.stream().sorted((m1, m2) -> {
-                float delta = m2.score() - m1.score();
-                if(delta < 0) {
-                    return -1;
-                } if(delta > 0) {
-                    return 1;
-                }
-                return 0;
-            })
-            .map(m -> {
-                final SubsDbEntry sub = this.corpus.get(m.sentenceIndex());
-                return new SubsEntryView(sub.videoName(), sub.subs(), sub.fromTs(), sub.toTs(), m.from(), m.to());
-            }));
     }
 
     public static SubsSearchRequest parseQuery(ServerRequest serverRequest) {
@@ -212,7 +227,7 @@ public class SubsService {
 
     public Mono<ServerResponse> askReloadDb(ServerRequest request) {
         reloadDb();
-        return WebUtils.ok().bodyValue("done");
+        return ok().bodyValue("done");
     }
     public static Multimap<SentenceElement, IndexEntry> index(final List<SubsDbEntry> corpus) {
         final Multimap<SentenceElement, IndexEntry> db = HashMultimap.create();
@@ -240,7 +255,7 @@ public class SubsService {
         } else {
             hints = corpus.stream().filter(c -> c.subs().contains(query));
         }
-        return WebUtils.ok().bodyValue(hints.distinct().skip(offset).limit(count).map(SubsDbEntry::subs).collect(Collectors.toList()));
+        return ok().bodyValue(hints.distinct().skip(offset).limit(count).map(SubsDbEntry::subs).collect(Collectors.toList()));
     }
 
     public Mono<ServerResponse> text(ServerRequest serverRequest) {
@@ -256,7 +271,7 @@ public class SubsService {
             .sorted((e1, e2) -> Float.compare(e1.fromTs(), e2.fromTs()))
             .map(this::toText)
             .toList();
-        return WebUtils.ok().bodyValue(entries);
+        return ok().bodyValue(entries);
     }
 
     private SubsTextView toText(final SubsDbEntry subsDbEntry) {

@@ -131,4 +131,28 @@ public class SearchTest {
                 assertTrue("Should have found this one", subs.contains("나는 포도를 먹을까요"));
             });
     }
+
+    @Test
+    public void testSearchExact() {
+        RouterFunction function = RouterFunctions.route(
+            RequestPredicates.GET("/search"),
+            subsService::search
+        );
+
+        WebTestClient
+            .bindToRouterFunction(function)
+            .build().get().uri(uriBuilder ->  uriBuilder.path("/search")
+                .queryParam("q","{pattern}")
+                .queryParam("exact", "true")
+                .build("당신은 집"))
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody().consumeWith(data -> {
+                final var results = JsonUtils.deserializeSilentFail(new String(data.getResponseBody()),
+                    new TypeReference<List<SubsEntryView>>(){});
+                assertEquals("Should have found 1 results" , 1, results.size());
+                final Set<String> subs = results.stream().map(SubsEntryView::subs).collect(Collectors.toSet());
+                assertTrue("Should have found this one", subs.contains("당신은 집에 갈 수 있습니다"));
+            });
+    }
 }
