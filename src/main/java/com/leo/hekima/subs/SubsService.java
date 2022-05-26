@@ -235,7 +235,7 @@ public class SubsService {
             final List<SentenceElement> sentence = corpus.get(i).tags();
             for (int indexTag = 0; indexTag < sentence.size(); indexTag++) {
                 final SentenceElement sentenceElement = sentence.get(indexTag);
-                if(isEmpty(sentenceElement.type())) {
+                if(sentenceElement.type().isEmpty()) {
                     logger.info("{} has no type", sentenceElement);
                 } else {
                     db.put(sentenceElement, new IndexEntry(i, indexTag));

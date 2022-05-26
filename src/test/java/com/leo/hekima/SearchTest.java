@@ -25,7 +25,8 @@ public class SearchTest {
         "당신은 집에 갈 수 있습니다",
         "당신은 배고프다",
         "그는 여기서 일한다",
-        "나는 포도를 먹을까요");
+        "나는 포도를 먹을까요",
+        "지금부터 시작해도 늦지 않을까요?");
 
     @Test
     public void testSearchFixVerb() {
@@ -126,9 +127,10 @@ public class SearchTest {
             .expectBody().consumeWith(data -> {
                 final var results = JsonUtils.deserializeSilentFail(new String(data.getResponseBody()),
                     new TypeReference<List<SubsEntryView>>(){});
-                assertEquals("Should have found 1 results" , 1, results.size());
+                assertEquals("Should have found 1 results" , 2, results.size());
                 final Set<String> subs = results.stream().map(SubsEntryView::subs).collect(Collectors.toSet());
                 assertTrue("Should have found this one", subs.contains("나는 포도를 먹을까요"));
+                assertTrue("Should have found this one", subs.contains("지금부터 시작해도 늦지 않을까요?"));
             });
     }
 

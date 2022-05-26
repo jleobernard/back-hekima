@@ -19,16 +19,16 @@ public record SentenceElement(@JsonProperty("value") Optional<String> value,
         if (o == null || getClass() != o.getClass())
             return false;
         SentenceElement that = (SentenceElement) o;
-        return value.equals(that.value) && type.equals(that.type);
+        return value.equals(that.value) && typeToKey(this).equals(typeToKey(that));
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(value, type);
+        return Objects.hash(value.orElse(""), typeToKey(this));
     }
 
     public static String typeToKey(final SentenceElement pt) {
-        return pt == null ? "" : pt.type.map(type -> type.substring(0, Math.min(type.length(), 2))).orElse("");
+        return pt == null ? "" : pt.type.map(type -> type.substring(0, Math.min(type.length(), 1))).orElse("");
     }
 
     @Override
