@@ -8,7 +8,7 @@ PROJECT_BASE="$(realpath "$SCRIPT_DIRECTORY/..")"
 cd $PROJECT_BASE
 mvn clean package spring-boot:repackage -DskipTests
 cp target/notes.jar deploy/image
-docker build $PROJECT_BASE/deploy/image -t jleobernard/notes:$NOTES_VERSION --no-cache
+docker build $PROJECT_BASE/deploy/image -t jleobernard/notes:$NOTES_VERSION
 docker login
 docker push jleobernard/notes:$NOTES_VERSION
 #docker logout
