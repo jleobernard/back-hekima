@@ -176,7 +176,7 @@ public class SubsService {
                 }
                 case 2 -> {
                     alternatives = alternativesAndTag[0].split("/");
-                    posTag = alternativesAndTag[1].trim();
+                    posTag = alternativesAndTag[1].trim().toUpperCase();
                 }
                 default -> throw new IllegalArgumentException("should.never.happen.because.of.split.limit");
             }
