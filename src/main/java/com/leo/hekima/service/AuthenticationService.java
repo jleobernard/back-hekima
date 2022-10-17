@@ -11,7 +11,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.util.Pair;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.userdetails.User;
@@ -48,19 +50,24 @@ public class AuthenticationService {
         .flatMap(request -> {
             logger.info("Authenticating user {}", request.username());
             return authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(request.username(), request.password()))
-                    .map(authentication -> Pair.of(((User) authentication.getPrincipal()).getUsername(), jwtTokenProvider.createToken(authentication)));
-                }
-        )
-        .flatMap(authAndJwt -> userRepository.findByUri(authAndJwt.getFirst()).map(user -> Pair.of(user, authAndJwt.getSecond())))
-        .flatMap(userAndAccessToken -> refreshTokenRepository.save(
-                new RefreshTokenModel(userAndAccessToken.getFirst().getId(), UUID.randomUUID().toString()))
-                .map(rt -> Triple.of(userAndAccessToken.getFirst(), userAndAccessToken.getSecond(), rt)))
-        .flatMap(userAccessAndRefresh -> ok()
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userAccessAndRefresh.getMiddle())
-                .bodyValue(new AuthenticationResponse(userAccessAndRefresh.getLeft().getUri(),
+                    .map(authentication -> Pair.of(((User) authentication.getPrincipal()).getUsername(), jwtTokenProvider.createToken(authentication)))
+                .flatMap(authAndJwt -> userRepository.findByUri(authAndJwt.getFirst()).map(user -> Pair.of(user, authAndJwt.getSecond())))
+                .flatMap(userAndAccessToken -> refreshTokenRepository.save(
+                        new RefreshTokenModel(userAndAccessToken.getFirst().getId(), UUID.randomUUID().toString()))
+                    .map(rt -> Triple.of(userAndAccessToken.getFirst(), userAndAccessToken.getSecond(), rt)))
+                .flatMap(userAccessAndRefresh -> ok()
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + userAccessAndRefresh.getMiddle())
+                    .bodyValue(new AuthenticationResponse(userAccessAndRefresh.getLeft().getUri(),
                         userAccessAndRefresh.getMiddle(),
                         userAccessAndRefresh.getRight().getToken()))
-        );
+                );
+            }
+        ).onErrorResume(throwable -> {
+            if (throwable instanceof BadCredentialsException) {
+                return ServerResponse.status(HttpStatus.UNAUTHORIZED).build();
+            }
+            return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        });
     }
 
     @Transactional
