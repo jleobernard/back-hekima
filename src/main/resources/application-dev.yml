@@ -7,3 +7,8 @@ google:
 
 fcm:
   credentials: /opt/projetcs/ich/laflemme/src/main/resources/secrets/fcm.json
+
+notes:
+  publisher:
+    credentials: /opt/projetcs/ich/hekima/src/main/resources/secrets/gcp-publisher.json
+    strategy: rest

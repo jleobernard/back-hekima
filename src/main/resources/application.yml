@@ -30,3 +30,11 @@ subs:
     path: /opt/data/korean-subs/store
   videoclipper:
     url: ${CLIPPER_SERVICE_URL:http://localhost:8080}
+
+nlpsearch:
+  url: ${NLP_SEARCH_URL:http://localhost:8000}
+notes:
+  publisher:
+    strategy: gcp
+    topicid: projects/laflemme/topics/notes
+    credentials: /data/secrets/gcp-publisher.json

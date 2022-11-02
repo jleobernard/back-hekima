@@ -16,10 +16,12 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.Part;
@@ -36,7 +38,6 @@ import reactor.util.function.Tuple2;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
@@ -50,7 +51,6 @@ import static com.leo.hekima.utils.ReactiveUtils.optionalEmptyDeferred;
 import static com.leo.hekima.utils.ReactiveUtils.orEmptyList;
 import static com.leo.hekima.utils.RequestUtils.getStringSet;
 import static com.leo.hekima.utils.WebUtils.getPageAndSort;
-import static java.lang.String.format;
 import static java.lang.String.join;
 import static org.apache.commons.collections4.CollectionUtils.isNotEmpty;
 import static org.springframework.util.CollectionUtils.isEmpty;
@@ -62,6 +62,8 @@ import static reactor.core.publisher.Mono.just;
 @Component
 public class NoteService {
     private static final Logger logger = LoggerFactory.getLogger(NoteService.class);
+    private static final ParameterizedTypeReference<List<IndexedNote>> TYPE_INDEXED_NOTES =
+        new ParameterizedTypeReference<>() {};
     private final NoteRepository noteRepository;
     private final NoteTagRepository noteTagRepository;
     private final TagRepository tagRepository;
@@ -70,6 +72,7 @@ public class NoteService {
     private final String googleCredentialsPath;
     private ImageAnnotatorClient vision;
     private final WebClient webClient;
+    private final WebClient nlpsearchWebClient;
     private final WordAnalyzer wordAnalyzer;
     private final WordRepository wordRepository;
     private final NoteWordRepository noteWordRepository;
@@ -77,13 +80,19 @@ public class NoteService {
     private final Map<String, NoteView> notesCache = new HashMap<>();
     private final R2dbcEntityTemplate r2dbcEntityTemplate;
 
+    private final EventPublisher eventPublisher;
+
     public NoteService(NoteRepository noteRepository,
                        NoteTagRepository noteTagRepository, TagRepository tagRepository,
                        SourceRepository sourceRepository,
                        @Value("${google.credentials}") final String googleCredentialsPath,
                        @Value("${data.dir}") final String dataDirPath,
-                       @Value("${subs.videoclipper.url}") final String videoClipperUrl, WordAnalyzer wordAnalyzer,
-                       WordRepository wordRepository, NoteWordRepository noteWordRepository, R2dbcEntityTemplate r2dbcEntityTemplate) {
+                       @Value("${subs.videoclipper.url}") final String videoClipperUrl,
+                       @Value("${nlpsearch.url}") final String nlpsearchUrl,
+                       final WordAnalyzer wordAnalyzer,
+                       WordRepository wordRepository, NoteWordRepository noteWordRepository,
+                       R2dbcEntityTemplate r2dbcEntityTemplate,
+                       final EventPublisher eventPublisher) {
         this.noteRepository = noteRepository;
         this.noteTagRepository = noteTagRepository;
         this.tagRepository = tagRepository;
@@ -95,6 +104,13 @@ public class NoteService {
         this.wordRepository = wordRepository;
         this.noteWordRepository = noteWordRepository;
         this.r2dbcEntityTemplate = r2dbcEntityTemplate;
+        this.nlpsearchWebClient = WebClient.builder()
+            .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+            .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+            .baseUrl(nlpsearchUrl)
+            .build();
+        this.eventPublisher = eventPublisher;
+
         if(!this.dataDir.exists()) {
             logger.info("Creating data directory {}", dataDirPath);
             if(!this.dataDir.mkdirs()) {
@@ -145,8 +161,84 @@ public class NoteService {
 
     @Transactional(readOnly = true)
     public Mono<ServerResponse> search(ServerRequest request) {
-        final List<String> conditions = new ArrayList<>();
+        final Optional<String> q = request.queryParam("q")
+            .filter(StringUtils::isNotEmpty);
+        final Mono<String> query;
+        if (q.isPresent()) {
+            query = createSearchByNLPQuery(request);
+        } else {
+            query = createSearchByCriteria(request);
+        }
+        return query.flatMap(sql -> {
+            var pageAndSort = getPageAndSort(request);
+            final var limitedQuery = sql + " OFFSET " + pageAndSort.offset() + " LIMIT " + pageAndSort.count();
+            var views = orEmptyList(r2dbcEntityTemplate.getDatabaseClient().sql(limitedQuery).fetch().all()
+                .map(row -> new NoteModel(
+                        ((Integer) row.get("id")).longValue(),
+                        (String) row.get("uri"),
+                        (String) row.get("valeur"),
+                        ((OffsetDateTime) row.get("created_at")).toInstant(),
+                        Optional.ofNullable((Integer) row.get("source_id")).map(Integer::longValue).orElse(null),
+                        Optional.ofNullable(((Json) row.get("files")))
+                            .map(d -> JsonUtils.deserializeSilentFail(d.asString(), NoteFiles.class))
+                            .orElseGet(NoteFiles::new),
+                        Optional.ofNullable(((Json) row.get("subs")))
+                            .map(d -> JsonUtils.deserializeSilentFail(d.asString(), NoteSubs.class))
+                            .orElseGet(NoteSubs::new)
+                    )
+                ))
+                .flatMap(notes -> {
+                    var uris = notes.stream().map(NoteModel::getUri).toList();
+                    var transformers = notes.stream()
+                        .map(this::toView);
+                    final var transformed = transformers.collect(Collectors.toList());
+                    return Mono.zip(transformed, aggregat -> Arrays.stream(aggregat).map(a -> (NoteView)a).collect(Collectors.toList()))
+                        .map(unorderdNoteViews -> {
+                            final List<NoteView> sorted = new ArrayList<>(unorderdNoteViews);
+                            sorted.sort(Comparator.comparingInt(h -> uris.indexOf(h.uri())));
+                            return sorted;
+                        });
+                }).switchIfEmpty(defer(() -> Mono.just(Collections.emptyList())));
+            return ok().body(views, NoteView.class);
+        });
+    }
+
+    private Mono<String> createSearchByNLPQuery(ServerRequest request) {
+        final String q = request.queryParam("q")
+            .map(String::trim).orElse("");
         var pageAndSort = getPageAndSort(request);
+        return nlpsearchWebClient.get()
+            .uri(uriBuilder -> uriBuilder.pathSegment("api/notes")
+                .queryParam("q", q)
+                .queryParam("count", pageAndSort.count())
+                .queryParam("offset", pageAndSort.offset())
+                .build())
+            .exchangeToMono(response -> {
+                if(HttpStatus.OK.equals(response.statusCode())) {
+                    return response.bodyToMono(TYPE_INDEXED_NOTES)
+                        .flatMap(uris -> {
+                            if(uris.isEmpty()) {
+                                return Mono.empty();
+                            } else {
+                                final String sqlUris =
+                                    uris.stream().map(uri -> "'" + uri.uri() +"'").collect(Collectors.joining(","));
+                                return Mono.just("""
+                                SELECT id, uri, valeur, created_at, source_id, files, subs from note
+                                where uri in (""" +
+                                sqlUris +
+                                ") order by array_position(ARRAY["+sqlUris + "], uri::text) ");
+                            }
+                        });
+                } else {
+                    logger.error("Error while calling nlp search service");
+                    throw new UnrecoverableServiceException("nlp.search.call.error");
+                }
+            });
+
+    }
+
+    private Mono<String> createSearchByCriteria(ServerRequest request) {
+        final List<String> conditions = new ArrayList<>();
         // TODO Sanitize
         request.queryParam("source")
             .filter(n -> !n.isBlank())
@@ -169,65 +261,13 @@ public class NoteService {
                         .collect(Collectors.toList()))
                 .filter(l -> !l.isEmpty())
                 .ifPresent(allTags -> conditions.add("note.id NOT IN (SELECT note_id FROM note_tag LEFT JOIN tag on tag.id = note_tag.tag_id WHERE tag.uri in ('" + join("','", allTags) + "'))"));
-        final Set<Word> indexableWords = request.queryParam("q")
-                .filter(StringUtils::isNotEmpty)
-                .map(wordAnalyzer::getIndexableWords)
-                .filter(l -> !l.isEmpty()).orElse(Collections.emptySet());
-        if(!indexableWords.isEmpty()) {
-            conditions.add("note.id IN (SELECT note_id FROM note_word LEFT JOIN word on word.id = note_word.word_id WHERE word.word in ('" + join("','", indexableWords.stream().map(Word::word).collect(Collectors.toSet())) + "'))");
-        }
         final StringBuilder sql = new StringBuilder("SELECT id, uri, valeur, created_at, source_id, files, subs from note ");
         if(!conditions.isEmpty()) {
             sql.append(" WHERE ");
             sql.append(join(" AND ", conditions));
         }
-        sql.append(" ORDER BY created_at DESC OFFSET ");
-        sql.append(pageAndSort.offset());
-        sql.append(" LIMIT ");
-        sql.append(pageAndSort.count());
-        logger.debug("Start executing request");
-        final long start = System.currentTimeMillis();
-        var views = orEmptyList(r2dbcEntityTemplate.getDatabaseClient().sql(sql.toString()).fetch().all()
-        .map(row -> new NoteModel(
-            ((Integer) row.get("id")).longValue(),
-            (String) row.get("uri"),
-            (String) row.get("valeur"),
-            ((OffsetDateTime) row.get("created_at")).toInstant(),
-            Optional.ofNullable((Integer) row.get("source_id")).map(Integer::longValue).orElse(null),
-            Optional.ofNullable(((Json) row.get("files")))
-                .map(d -> JsonUtils.deserializeSilentFail(d.asString(), NoteFiles.class))
-                .orElseGet(NoteFiles::new),
-            Optional.ofNullable(((Json) row.get("subs")))
-                    .map(d -> JsonUtils.deserializeSilentFail(d.asString(), NoteSubs.class))
-                    .orElseGet(NoteSubs::new)
-            )
-        ))
-        .flatMap(notes -> {
-            var uris = notes.stream().map(NoteModel::getUri).toList();
-            var transformers = notes.stream()
-                .map(this::toView);
-            if(!indexableWords.isEmpty()) {
-                transformers = transformers.map(view -> highlight(view, indexableWords));
-            }
-            final var transformed = transformers.collect(Collectors.toList());
-            return Mono.zip(transformed, aggregat -> Arrays.stream(aggregat).map(a -> (NoteView)a).collect(Collectors.toList()))
-                .map(unorderdNoteViews -> {
-                    final List<NoteView> sorted = new ArrayList<>(unorderdNoteViews);
-                    sorted.sort(Comparator.comparingInt(h -> uris.indexOf(h.uri())));
-                    return sorted;
-                });
-        }).switchIfEmpty(defer(() -> Mono.just(Collections.emptyList())));
-        return ok().body(views, NoteView.class);
-    }
-
-    private Mono<NoteView> highlight(Mono<NoteView> noteViewMono, final Set<Word> highlights) {
-        return noteViewMono.map(view -> {
-            String highlighted = view.valeur();
-            for (Word highlight : highlights) {
-                highlighted = highlighted.replaceAll(highlight.word(), format("<span class='highlight'>%s</span>", highlight.word()));
-            }
-            return new NoteView(view.uri(), highlighted, view.tags(), view.source(), view.files(), view.subs());
-        });
+        sql.append(" ORDER BY created_at DESC ");
+        return Mono.just(sql.toString());
     }
 
 
@@ -242,10 +282,11 @@ public class NoteService {
                 }
             })
             .flatMap(noteRepository::delete)
-            .flatMap(value -> {
+            .then(Mono.defer(() -> {
                 logger.info("Note {} a bien été supprimée", uri);
+                this.eventPublisher.publishMessage(uri, NoteMessageType.DELETE);
                 return noContent().build();
-            })
+            }))
             .onErrorResume(e -> {
                 logger.error("Erreur lors de la suppression", e);
                 return status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -386,16 +427,11 @@ public class NoteService {
         return noteRepository.findByUri(uri)
             .filter(hekima -> hekima.getFiles() != null && hekima.getFiles().files() != null && hekima.getFiles().files().stream().anyMatch(f -> f.fileId().equals(fileId)))
             .map(hekima -> hekima.getFiles().files().stream().filter(f -> f.fileId().equals(fileId)).findAny().get())
-            .flatMap(value -> {
-                try {
-                    return ok()
-                        .contentType(MediaType.parseMediaType(value.mimeType()))
-                        .body(BodyInserters.fromResource(new InputStreamResource(new FileInputStream(getDataFile(value.fileId())))));
-                } catch (FileNotFoundException e) {
-                    logger.error("Cannot read file {}", value.fileId());
-                    throw new UnrecoverableServiceException("Cannot read file", e);
-                }
-            }).switchIfEmpty(notFound().build());
+            .filter(noteFile -> getDataFile(noteFile.fileId()).exists())
+            .flatMap(value -> ok()
+                .contentType(MediaType.parseMediaType(value.mimeType()))
+                .body(BodyInserters.fromResource(new FileSystemResource(getDataFile(value.fileId()))))).switchIfEmpty(notFound().build())
+            .switchIfEmpty(status(HttpStatus.NOT_FOUND).build());
     }
 
     @Transactional
@@ -479,6 +515,7 @@ public class NoteService {
                             return noteTagRepository.saveAll(links).then(Mono.just(savedNote));
                         })
                 )
+                .doOnNext(savedNote -> this.eventPublisher.publishMessage(savedNote.getUri(), NoteMessageType.UPSERT))
                 .flatMap(savedNote -> WebUtils.ok().body(toView(savedNote), NoteView.class));
             });
     }
@@ -641,4 +678,5 @@ public class NoteService {
                 .collectList(), List.class)
         ).orElseGet(() -> WebUtils.ok().bodyValue(new ArrayList<String>(0)));
     }
+
 }
