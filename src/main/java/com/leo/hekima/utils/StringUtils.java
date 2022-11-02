@@ -13,23 +13,29 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 public final class StringUtils {
     private StringUtils() {}
-    public static final String toHex(final String string) {
+    public static String toHex(final String string) {
         return Hex.toHexString(string.getBytes(UTF_8));
     }
-    public static final String toHex(final byte[] bytes) {
+    public static String toHex(final byte[] bytes) {
         return Hex.toHexString(bytes);
     }
-    public static final String base64Encode(final byte[] bytes) {
+    public static String base64Encode(final byte[] bytes) {
         return new String(Base64.getEncoder().encode(bytes), UTF_8);
     }
-    public static final String base64Decode(final byte[] bytes) {
+    public static String base64Encode(final String str) {
+        return base64Encode(str.getBytes(UTF_8));
+    }
+    public static String base64EncodeJson(final Object payload) {
+        return base64Encode(JsonUtils.serializeSilentFail(payload).getBytes(UTF_8));
+    }
+    public static String base64Decode(final byte[] bytes) {
         return new String(Base64.getDecoder().decode(bytes), UTF_8);
     }
-    public static final String sha1InHex(final String string) {
+    public static String sha1InHex(final String string) {
         byte[] bytes = string.toLowerCase().getBytes(UTF_8);
         return sha1InHex(bytes);
     }
-    public static final String sha1InHex(final  byte[] bytes) {
+    public static String sha1InHex(final  byte[] bytes) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-1");
             return Hex.toHexString(md.digest(bytes));
@@ -37,7 +43,7 @@ public final class StringUtils {
             throw new UnrecoverableServiceException("sha1.not.found");
         }
     }
-    public static final String md5InHex(final String string) {
+    public static String md5InHex(final String string) {
         byte[] bytesEmailAddress = string.toLowerCase().getBytes(UTF_8);
         try {
             MessageDigest md = MessageDigest.getInstance("MD5");
@@ -46,7 +52,7 @@ public final class StringUtils {
             throw new UnrecoverableServiceException("md5.not.found");
         }
     }
-    public static final String md5(final String string) {
+    public static String md5(final String string) {
         byte[] bytesEmailAddress = string.toLowerCase().getBytes(UTF_8);
         try {
             MessageDigest md = MessageDigest.getInstance("MD5");
@@ -56,7 +62,7 @@ public final class StringUtils {
         }
     }
 
-    public static final SplittedString splitByLastIndexOfCharacter(final char splitCar, final String source) {
+    public static SplittedString splitByLastIndexOfCharacter(final char splitCar, final String source) {
         final SplittedString splitted;
         if(org.springframework.util.StringUtils.hasText(source)) {
             final String prefix, suffix;
@@ -98,7 +104,7 @@ public final class StringUtils {
             return Optional.ofNullable(suffix);
         }
     }
-    public static final boolean isNotEmpty(final String seq) {
+    public static boolean isNotEmpty(final String seq) {
         return seq != null && !seq.trim().isEmpty();
     }
 

@@ -17,7 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
@@ -38,7 +38,6 @@ import reactor.util.function.Tuple2;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
@@ -81,6 +80,8 @@ public class NoteService {
     private final Map<String, NoteView> notesCache = new HashMap<>();
     private final R2dbcEntityTemplate r2dbcEntityTemplate;
 
+    private final EventPublisher eventPublisher;
+
     public NoteService(NoteRepository noteRepository,
                        NoteTagRepository noteTagRepository, TagRepository tagRepository,
                        SourceRepository sourceRepository,
@@ -89,7 +90,9 @@ public class NoteService {
                        @Value("${subs.videoclipper.url}") final String videoClipperUrl,
                        @Value("${nlpsearch.url}") final String nlpsearchUrl,
                        final WordAnalyzer wordAnalyzer,
-                       WordRepository wordRepository, NoteWordRepository noteWordRepository, R2dbcEntityTemplate r2dbcEntityTemplate) {
+                       WordRepository wordRepository, NoteWordRepository noteWordRepository,
+                       R2dbcEntityTemplate r2dbcEntityTemplate,
+                       final EventPublisher eventPublisher) {
         this.noteRepository = noteRepository;
         this.noteTagRepository = noteTagRepository;
         this.tagRepository = tagRepository;
@@ -106,6 +109,8 @@ public class NoteService {
             .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
             .baseUrl(nlpsearchUrl)
             .build();
+        this.eventPublisher = eventPublisher;
+
         if(!this.dataDir.exists()) {
             logger.info("Creating data directory {}", dataDirPath);
             if(!this.dataDir.mkdirs()) {
@@ -164,8 +169,8 @@ public class NoteService {
         } else {
             query = createSearchByCriteria(request);
         }
-        var pageAndSort = getPageAndSort(request);
         return query.flatMap(sql -> {
+            var pageAndSort = getPageAndSort(request);
             final var limitedQuery = sql + " OFFSET " + pageAndSort.offset() + " LIMIT " + pageAndSort.count();
             var views = orEmptyList(r2dbcEntityTemplate.getDatabaseClient().sql(limitedQuery).fetch().all()
                 .map(row -> new NoteModel(
@@ -234,7 +239,6 @@ public class NoteService {
 
     private Mono<String> createSearchByCriteria(ServerRequest request) {
         final List<String> conditions = new ArrayList<>();
-        var pageAndSort = getPageAndSort(request);
         // TODO Sanitize
         request.queryParam("source")
             .filter(n -> !n.isBlank())
@@ -262,10 +266,7 @@ public class NoteService {
             sql.append(" WHERE ");
             sql.append(join(" AND ", conditions));
         }
-        sql.append(" ORDER BY created_at DESC OFFSET ");
-        sql.append(pageAndSort.offset());
-        sql.append(" LIMIT ");
-        sql.append(pageAndSort.count());
+        sql.append(" ORDER BY created_at DESC ");
         return Mono.just(sql.toString());
     }
 
@@ -281,10 +282,11 @@ public class NoteService {
                 }
             })
             .flatMap(noteRepository::delete)
-            .flatMap(value -> {
+            .then(Mono.defer(() -> {
                 logger.info("Note {} a bien été supprimée", uri);
+                this.eventPublisher.publishMessage(uri, NoteMessageType.DELETE);
                 return noContent().build();
-            })
+            }))
             .onErrorResume(e -> {
                 logger.error("Erreur lors de la suppression", e);
                 return status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -425,16 +427,11 @@ public class NoteService {
         return noteRepository.findByUri(uri)
             .filter(hekima -> hekima.getFiles() != null && hekima.getFiles().files() != null && hekima.getFiles().files().stream().anyMatch(f -> f.fileId().equals(fileId)))
             .map(hekima -> hekima.getFiles().files().stream().filter(f -> f.fileId().equals(fileId)).findAny().get())
-            .flatMap(value -> {
-                try {
-                    return ok()
-                        .contentType(MediaType.parseMediaType(value.mimeType()))
-                        .body(BodyInserters.fromResource(new InputStreamResource(new FileInputStream(getDataFile(value.fileId())))));
-                } catch (FileNotFoundException e) {
-                    logger.error("Cannot read file {}", value.fileId());
-                    throw new UnrecoverableServiceException("Cannot read file", e);
-                }
-            }).switchIfEmpty(notFound().build());
+            .filter(noteFile -> getDataFile(noteFile.fileId()).exists())
+            .flatMap(value -> ok()
+                .contentType(MediaType.parseMediaType(value.mimeType()))
+                .body(BodyInserters.fromResource(new FileSystemResource(getDataFile(value.fileId()))))).switchIfEmpty(notFound().build())
+            .switchIfEmpty(status(HttpStatus.NOT_FOUND).build());
     }
 
     @Transactional
@@ -518,6 +515,7 @@ public class NoteService {
                             return noteTagRepository.saveAll(links).then(Mono.just(savedNote));
                         })
                 )
+                .doOnNext(savedNote -> this.eventPublisher.publishMessage(savedNote.getUri(), NoteMessageType.UPSERT))
                 .flatMap(savedNote -> WebUtils.ok().body(toView(savedNote), NoteView.class));
             });
     }
@@ -680,4 +678,5 @@ public class NoteService {
                 .collectList(), List.class)
         ).orElseGet(() -> WebUtils.ok().bodyValue(new ArrayList<String>(0)));
     }
+
 }
