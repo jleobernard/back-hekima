@@ -10,6 +10,7 @@ import com.leo.hekima.model.Word;
 import com.leo.hekima.model.*;
 import com.leo.hekima.repository.*;
 import com.leo.hekima.to.*;
+import com.leo.hekima.to.message.NoteMessageType;
 import com.leo.hekima.utils.*;
 import io.r2dbc.postgresql.codec.Json;
 import org.apache.commons.collections4.CollectionUtils;
@@ -284,7 +285,7 @@ public class NoteService {
             .flatMap(noteRepository::delete)
             .then(Mono.defer(() -> {
                 logger.info("Note {} a bien été supprimée", uri);
-                this.eventPublisher.publishMessage(uri, NoteMessageType.DELETE);
+                this.eventPublisher.publishNoteLifeCycleMessage(uri, NoteMessageType.DELETE);
                 return noContent().build();
             }))
             .onErrorResume(e -> {
@@ -515,7 +516,7 @@ public class NoteService {
                             return noteTagRepository.saveAll(links).then(Mono.just(savedNote));
                         })
                 )
-                .doOnNext(savedNote -> this.eventPublisher.publishMessage(savedNote.getUri(), NoteMessageType.UPSERT))
+                .doOnNext(savedNote -> this.eventPublisher.publishNoteLifeCycleMessage(savedNote.getUri(), NoteMessageType.UPSERT))
                 .flatMap(savedNote -> WebUtils.ok().body(toView(savedNote), NoteView.class));
             });
     }

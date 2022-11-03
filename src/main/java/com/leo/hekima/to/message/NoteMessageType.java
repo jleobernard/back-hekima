@@ -1,4 +1,4 @@
-package com.leo.hekima.to;
+package com.leo.hekima.to.message;
 
 public enum NoteMessageType {
     UPSERT,

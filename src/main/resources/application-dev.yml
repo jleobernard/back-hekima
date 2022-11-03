@@ -12,3 +12,9 @@ notes:
   publisher:
     credentials: /opt/projetcs/ich/hekima/src/main/resources/secrets/gcp-publisher.json
     strategy: rest
+
+subs:
+  cloudstorage:
+    projectId: laflemme
+    bucketId: kovids
+    credentials: /opt/projetcs/ich/hekima/src/main/resources/secrets/cloud-storage-writer.json

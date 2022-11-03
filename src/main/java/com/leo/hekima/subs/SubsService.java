@@ -1,36 +1,48 @@
 package com.leo.hekima.subs;
 
+import com.google.auth.oauth2.ServiceAccountCredentials;
+import com.google.cloud.WriteChannel;
+import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageOptions;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import com.leo.hekima.exception.UnrecoverableServiceException;
+import com.leo.hekima.service.EventPublisher;
+import com.leo.hekima.to.AckResponse;
 import com.leo.hekima.to.SubsSearchPatternElement;
 import com.leo.hekima.to.SubsSearchRequest;
+import com.leo.hekima.to.message.BaseSubsVideoMessage;
+import com.leo.hekima.to.message.SubsMessageType;
 import com.leo.hekima.utils.RequestUtils;
 import com.leo.hekima.utils.StringUtils;
-import com.leo.hekima.utils.WebUtils;
 import com.opencsv.CSVReader;
 import com.opencsv.exceptions.CsvException;
 import kr.co.shineware.nlp.komoran.constant.DEFAULT_MODEL;
 import kr.co.shineware.nlp.komoran.core.Komoran;
+import org.apache.commons.io.FilenameUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.util.Pair;
+import org.springframework.http.codec.multipart.FilePart;
+import org.springframework.http.codec.multipart.Part;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Mono;
 
-import java.io.File;
-import java.io.FileReader;
-import java.io.IOException;
+import java.io.*;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.leo.hekima.subs.SearchPattern.*;
-import static com.leo.hekima.subs.SearchPattern.index;
 import static com.leo.hekima.utils.WebUtils.ok;
 import static org.apache.commons.lang3.ObjectUtils.isEmpty;
 
@@ -38,20 +50,48 @@ import static org.apache.commons.lang3.ObjectUtils.isEmpty;
 public class SubsService {
     private static final Logger logger = LoggerFactory.getLogger(SubsService.class);
     public static final Komoran komoran = new Komoran(DEFAULT_MODEL.FULL);
+
+    private final Storage storage;
+    private final String bucketName;
     private List<SubsDbEntry> corpus;
     private Multimap<SentenceElement, IndexEntry> db = HashMultimap.create(1, 1);
     private final String subsStorePath;
 
-    public SubsService(@Value("${subs.store.path}") final String subsStorePath) {
+    private final EventPublisher eventPublisher;
+
+    public SubsService(@Value("${subs.store.path}") final String subsStorePath,
+                       @Value("${subs.cloudstorage.projectId}") final String projectId,
+                       @Value("${subs.cloudstorage.bucketId}") final String bucketId,
+                       @Value("${subs.cloudstorage.credentials}") final String csCredentialsPath,
+                       final EventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
         this.corpus = Collections.emptyList();
         this.subsStorePath = subsStorePath;
         if(subsStorePath != null) {
             reloadDb();
         }
+        if(projectId == null) {
+            this.storage = null;
+            this.bucketName = null;
+        } else {
+            final ServiceAccountCredentials myCredentials;
+            try {
+                myCredentials = ServiceAccountCredentials.fromStream(
+                    new FileInputStream(csCredentialsPath));
+            } catch (IOException e) {
+                throw new RuntimeException("Cannot authenticate", e);
+            }
+            this.storage = StorageOptions.newBuilder()
+                .setCredentials(myCredentials)
+                .setProjectId(projectId)
+                .build().getService();
+            this.bucketName = bucketId;
+        }
+
     }
 
     public static SubsService fromMemory(final String... haystack) {
-        final SubsService ss = new SubsService(null);
+        final SubsService ss = new SubsService(null, null, null, null, null);
         final List<Pair<String, List<SentenceElement>>> entries = Arrays.stream(haystack)
             .map(line ->
                 Pair.of(line, komoran.analyze(line).getList().stream()
@@ -286,5 +326,52 @@ public class SubsService {
                     .toList()
             ).toList();
         return SearchPattern.index(entries);
+    }
+
+    public Mono<ServerResponse> upload(final ServerRequest serverRequest) {
+        logger.info("Upload new video file with subs...");
+        return serverRequest.multipartData().doOnNext(multipartData -> {
+            final List<Part> parts = multipartData.get("file");
+            final Part file = parts.get(0);
+            final FilePart filePart = ((FilePart) file);
+            final String fileName = filePart.filename();
+            logger.info("File name is {}", fileName);
+            final String baseName = FilenameUtils.getBaseName(fileName);
+            final File destination = Path.of("/tmp", fileName).toFile();
+            filePart.transferTo(destination).then(Mono.defer(() -> {
+                final BlobId blobId = BlobId.of(bucketName, baseName + "/" + fileName);
+                final BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
+                try {
+                    logger.info("Sending content bytes ...");
+                    try (WriteChannel writer = storage.writer(blobInfo)) {
+                        byte[] buffer = new byte[10_240];
+                        try (InputStream input = Files.newInputStream(destination.toPath())) {
+                            int limit;
+                            while ((limit = input.read(buffer)) >= 0) {
+                                writer.write(ByteBuffer.wrap(buffer, 0, limit));
+                            }
+                        }
+
+                    }
+                    logger.info("... upload done");
+                    logger.info("Sending message to notify of new video {}", fileName);
+                    eventPublisher.publishSubMessage(new BaseSubsVideoMessage(baseName, SubsMessageType.NEW));
+                } catch (IOException ex) {
+                    throw new RuntimeException(ex);
+                }
+                return Mono.empty();
+            }))
+            .doOnTerminate(() -> {
+                if(destination.exists()) {
+                    logger.debug("Deleting temp file " + destination.getAbsolutePath());
+                    if(destination.delete()) {
+                        logger.info("Temp file " + destination.getAbsolutePath() + " deleted");
+                    } else {
+                        logger.warn("Error while deleting temp file " + destination.getAbsolutePath());
+                    }
+                }
+            })
+            .subscribe();
+        }).flatMap(e -> ok().bodyValue(AckResponse.OK));
     }
 }

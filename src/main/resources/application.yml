@@ -30,6 +30,12 @@ subs:
     path: /opt/data/korean-subs/store
   videoclipper:
     url: ${CLIPPER_SERVICE_URL:http://localhost:8080}
+  publisher:
+    topicid: projects/laflemme/topics/subs
+  cloudstorage:
+    projectId: laflemme
+    bucketId: kovids
+    credentials: /data/secrets/cloud-storage-writer.json
 
 nlpsearch:
   url: ${NLP_SEARCH_URL:http://localhost:8000}

@@ -1,7 +1,9 @@
 package com.leo.hekima.service;
 
-import com.leo.hekima.to.NoteMessageType;
+import com.leo.hekima.to.message.BaseSubsVideoMessage;
+import com.leo.hekima.to.message.NoteMessageType;
 import com.leo.hekima.to.PubSubMessage;
+import org.apache.commons.lang3.NotImplementedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,7 +33,7 @@ public class RestEventPublisher implements EventPublisher {
             .build();
     }
 
-    public void publishMessage(final String noteUri, final NoteMessageType messageType) {
+    public void publishNoteLifeCycleMessage(final String noteUri, final NoteMessageType messageType) {
         logger.debug("Publishing message for note {}", noteUri);
         try {
             final PubSubMessage payload = new PubSubMessage(noteUri, messageType.name());
@@ -48,5 +50,10 @@ public class RestEventPublisher implements EventPublisher {
         } catch (Exception e) {
             logger.error("Error while publishing message about note {} of type {}", noteUri, messageType, e);
         }
+    }
+
+    @Override
+    public void publishSubMessage(BaseSubsVideoMessage payload) {
+        throw new NotImplementedException();
     }
 }
