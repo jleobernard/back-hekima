@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.leo</groupId>
 	<artifactId>hekima</artifactId>
-	<version>3.0.0</version><!--MY_VERSION-->
+	<version>3.0.1</version><!--MY_VERSION-->
 	<name>hekima</name>
 	<description>Gestion des notes</description>
 

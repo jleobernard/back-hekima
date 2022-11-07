@@ -336,10 +336,9 @@ public class SubsService {
             final FilePart filePart = ((FilePart) file);
             final String fileName = filePart.filename();
             logger.info("File name is {}", fileName);
-            final String baseName = FilenameUtils.getBaseName(fileName);
             final File destination = Path.of("/tmp", fileName).toFile();
             filePart.transferTo(destination).then(Mono.defer(() -> {
-                final BlobId blobId = BlobId.of(bucketName, baseName + "/" + fileName);
+                final BlobId blobId = BlobId.of(bucketName, getBlobPathFromName(fileName));
                 final BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
                 try {
                     logger.info("Sending content bytes ...");
@@ -355,7 +354,7 @@ public class SubsService {
                     }
                     logger.info("... upload done");
                     logger.info("Sending message to notify of new video {}", fileName);
-                    eventPublisher.publishSubMessage(new BaseSubsVideoMessage(baseName, SubsMessageType.NEW));
+                    eventPublisher.publishSubMessage(new BaseSubsVideoMessage(fileName, SubsMessageType.NEW));
                 } catch (IOException ex) {
                     throw new RuntimeException(ex);
                 }
@@ -373,5 +372,10 @@ public class SubsService {
             })
             .subscribe();
         }).flatMap(e -> ok().bodyValue(AckResponse.OK));
+    }
+
+    public static String getBlobPathFromName(final String fileName) {
+        final String baseName = FilenameUtils.getBaseName(fileName);
+        return "videos/" + baseName + "/" + fileName;
     }
 }

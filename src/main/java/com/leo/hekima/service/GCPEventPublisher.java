@@ -70,7 +70,9 @@ public class GCPEventPublisher implements EventPublisher {
         try {
             final PubsubMessage message = PubsubMessage.newBuilder().setData(
                 ByteString.copyFromUtf8(JsonUtils.serializeSilentFail(payload))
-            ).build();
+            )
+            .putAttributes("type", payload.getType().name())
+            .build();
             final ApiFuture<String> futureMessage = publisherSubs.publish(message);
             futureMessage.addListener(() -> logger.debug("Message was pushed on GCP Pub/Sub : {}", futureMessage.isDone()), taskExecutor);
         } catch (Exception e) {

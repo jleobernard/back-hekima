@@ -11,7 +11,7 @@ fcm:
 notes:
   publisher:
     credentials: /opt/projetcs/ich/hekima/src/main/resources/secrets/gcp-publisher.json
-    strategy: rest
+    strategy: gcp
 
 subs:
   cloudstorage:
