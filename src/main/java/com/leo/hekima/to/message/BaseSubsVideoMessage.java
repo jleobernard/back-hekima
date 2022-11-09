@@ -1,5 +1,8 @@
 package com.leo.hekima.to.message;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+@JsonIgnoreProperties
 public class BaseSubsVideoMessage {
     private final SubsMessageType type;
     private final String videoName;

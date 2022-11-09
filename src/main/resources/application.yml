@@ -27,9 +27,13 @@ subs:
     url: ${CLIPPER_SERVICE_URL:http://localhost:8080}
   publisher:
     topicid: projects/laflemme/topics/subs
+  reader:
+    strategy: gcp
+    subscription: projects/laflemme/subscriptions/subs-processed
   cloudstorage:
     projectId: laflemme
     bucketId: kovids
+
 
 nlpsearch:
   url: ${NLP_SEARCH_URL:http://localhost:8000}
