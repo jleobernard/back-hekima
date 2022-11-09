@@ -1,6 +1,5 @@
 package com.leo.hekima.subs;
 
-import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.WriteChannel;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
@@ -33,7 +32,10 @@ import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Mono;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -62,7 +64,6 @@ public class SubsService {
     public SubsService(@Value("${subs.store.path}") final String subsStorePath,
                        @Value("${subs.cloudstorage.projectId}") final String projectId,
                        @Value("${subs.cloudstorage.bucketId}") final String bucketId,
-                       @Value("${subs.cloudstorage.credentials}") final String csCredentialsPath,
                        final EventPublisher eventPublisher) {
         this.eventPublisher = eventPublisher;
         this.corpus = Collections.emptyList();
@@ -74,15 +75,7 @@ public class SubsService {
             this.storage = null;
             this.bucketName = null;
         } else {
-            final ServiceAccountCredentials myCredentials;
-            try {
-                myCredentials = ServiceAccountCredentials.fromStream(
-                    new FileInputStream(csCredentialsPath));
-            } catch (IOException e) {
-                throw new RuntimeException("Cannot authenticate", e);
-            }
             this.storage = StorageOptions.newBuilder()
-                .setCredentials(myCredentials)
                 .setProjectId(projectId)
                 .build().getService();
             this.bucketName = bucketId;
@@ -91,7 +84,7 @@ public class SubsService {
     }
 
     public static SubsService fromMemory(final String... haystack) {
-        final SubsService ss = new SubsService(null, null, null, null, null);
+        final SubsService ss = new SubsService(null, null, null, null);
         final List<Pair<String, List<SentenceElement>>> entries = Arrays.stream(haystack)
             .map(line ->
                 Pair.of(line, komoran.analyze(line).getList().stream()

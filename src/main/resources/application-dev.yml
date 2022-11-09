@@ -2,19 +2,11 @@ data:
   dir: /opt/projetcs/ich/hekima/data
 
 
-google:
-  credentials: /opt/projetcs/ich/hekima/src/main/resources/secrets/laflemme-3b669604d7e6.json
-
-fcm:
-  credentials: /opt/projetcs/ich/laflemme/src/main/resources/secrets/fcm.json
-
 notes:
   publisher:
-    credentials: /opt/projetcs/ich/hekima/src/main/resources/secrets/gcp-publisher.json
     strategy: gcp
 
 subs:
   cloudstorage:
     projectId: laflemme
     bucketId: kovids
-    credentials: /opt/projetcs/ich/hekima/src/main/resources/secrets/cloud-storage-writer.json

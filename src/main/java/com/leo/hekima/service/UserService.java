@@ -1,12 +1,7 @@
 package com.leo.hekima.service;
 
-import com.google.auth.oauth2.GoogleCredentials;
-import com.google.firebase.FirebaseApp;
-import com.google.firebase.FirebaseOptions;
-import com.leo.hekima.exception.UnrecoverableServiceException;
 import com.leo.hekima.repository.UserRepository;
 import com.leo.hekima.to.AckResponse;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -21,29 +16,14 @@ import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Mono;
 
-import java.io.FileInputStream;
-import java.io.IOException;
-
 import static com.leo.hekima.utils.WebUtils.ok;
 
 @Service
 public class UserService implements ReactiveUserDetailsService {
     private final UserRepository userRepository;
 
-    public UserService(UserRepository userRepository,
-                       @Value("${fcm.credentials}") final String fcmCredentialsPath) {
+    public UserService(UserRepository userRepository) {
         this.userRepository = userRepository;
-        final FirebaseOptions options;
-        try {
-            FileInputStream serviceAccount =
-                    new FileInputStream(fcmCredentialsPath);
-            options = FirebaseOptions.builder()
-                .setCredentials(GoogleCredentials.fromStream(serviceAccount))
-                .build();
-            FirebaseApp.initializeApp(options);
-        } catch (IOException e) {
-            throw new UnrecoverableServiceException(e);
-        }
     }
 
     @Override

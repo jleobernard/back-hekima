@@ -1,15 +1,13 @@
 package com.leo.hekima.service;
 
 import com.google.api.core.ApiFuture;
-import com.google.api.gax.core.FixedCredentialsProvider;
-import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.pubsub.v1.Publisher;
 import com.google.protobuf.ByteString;
 import com.google.pubsub.v1.PubsubMessage;
 import com.leo.hekima.exception.UnrecoverableServiceException;
+import com.leo.hekima.to.PubSubMessage;
 import com.leo.hekima.to.message.BaseSubsVideoMessage;
 import com.leo.hekima.to.message.NoteMessageType;
-import com.leo.hekima.to.PubSubMessage;
 import com.leo.hekima.utils.JsonUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,7 +16,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 
-import java.io.FileInputStream;
 import java.io.IOException;
 
 @Service
@@ -31,20 +28,15 @@ public class GCPEventPublisher implements EventPublisher {
 
 
     public GCPEventPublisher(
-        @Value("${notes.publisher.credentials}") final String pubsubCredentials,
         @Value("${notes.publisher.topicid}") final String nlpsearchTopic,
         @Value("${subs.publisher.topicid}") final String subsTopic,
         TaskExecutor taskExecutor) {
         this.taskExecutor = taskExecutor;
         try {
-            final var myCredentials = ServiceAccountCredentials.fromStream(
-                new FileInputStream(pubsubCredentials));
-                this.publisherNotes = Publisher.newBuilder(nlpsearchTopic)
-                    .setCredentialsProvider(FixedCredentialsProvider.create(myCredentials))
-                    .build();
-                this.publisherSubs = Publisher.newBuilder(subsTopic)
-                    .setCredentialsProvider(FixedCredentialsProvider.create(myCredentials))
-                    .build();
+            this.publisherNotes = Publisher.newBuilder(nlpsearchTopic)
+                .build();
+            this.publisherSubs = Publisher.newBuilder(subsTopic)
+                .build();
             } catch (IOException e) {
                 throw new UnrecoverableServiceException("Cannot initialize publisher", e);
             }
