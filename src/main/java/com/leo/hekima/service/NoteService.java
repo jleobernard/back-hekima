@@ -1,8 +1,6 @@
 package com.leo.hekima.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.google.api.gax.core.FixedCredentialsProvider;
-import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.vision.v1.*;
 import com.google.protobuf.ByteString;
 import com.leo.hekima.exception.UnrecoverableServiceException;
@@ -38,7 +36,6 @@ import reactor.core.publisher.Mono;
 import reactor.util.function.Tuple2;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
@@ -70,7 +67,6 @@ public class NoteService {
     private final TagRepository tagRepository;
     private final SourceRepository sourceRepository;
     private final File dataDir;
-    private final String googleCredentialsPath;
     private ImageAnnotatorClient vision;
     private final WebClient webClient;
     private final WebClient nlpsearchWebClient;
@@ -86,7 +82,6 @@ public class NoteService {
     public NoteService(NoteRepository noteRepository,
                        NoteTagRepository noteTagRepository, TagRepository tagRepository,
                        SourceRepository sourceRepository,
-                       @Value("${google.credentials}") final String googleCredentialsPath,
                        @Value("${data.dir}") final String dataDirPath,
                        @Value("${subs.videoclipper.url}") final String videoClipperUrl,
                        @Value("${nlpsearch.url}") final String nlpsearchUrl,
@@ -99,7 +94,6 @@ public class NoteService {
         this.tagRepository = tagRepository;
         this.sourceRepository = sourceRepository;
         this.dataDir = new File(dataDirPath);
-        this.googleCredentialsPath = googleCredentialsPath;
         this.webClient = WebClient.create(videoClipperUrl);
         this.wordAnalyzer = wordAnalyzer;
         this.wordRepository = wordRepository;
@@ -586,10 +580,7 @@ public class NoteService {
 
     private void initVision(final boolean failOnError) {
         try {
-            final var myCredentials = ServiceAccountCredentials.fromStream(
-                    new FileInputStream(googleCredentialsPath));
             vision = ImageAnnotatorClient.create(ImageAnnotatorSettings.newBuilder()
-                    .setCredentialsProvider(FixedCredentialsProvider.create(myCredentials))
                     .build());
         } catch (IOException e) {
             if(failOnError) {

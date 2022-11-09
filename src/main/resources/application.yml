@@ -16,11 +16,6 @@ db:
   username: ${NOTES_DB_USERNAME:notes}
   password: ${NOTES_DB_PASSWORD:password}
 
-google:
-  credentials: /data/secrets/laflemme-3b669604d7e6.json
-fcm:
-  credentials: /data/secrets/fcm.json
-
 app:
   base:
     url: https://notes.jleo.tech
@@ -35,7 +30,6 @@ subs:
   cloudstorage:
     projectId: laflemme
     bucketId: kovids
-    credentials: /data/secrets/cloud-storage-writer.json
 
 nlpsearch:
   url: ${NLP_SEARCH_URL:http://localhost:8000}
@@ -43,4 +37,3 @@ notes:
   publisher:
     strategy: gcp
     topicid: projects/laflemme/topics/notes
-    credentials: /data/secrets/gcp-publisher.json
