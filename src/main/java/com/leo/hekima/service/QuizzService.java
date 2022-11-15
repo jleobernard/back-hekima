@@ -74,8 +74,7 @@ public class QuizzService {
                     row.get("createdat", Instant.class),
                     row.get("valeur", String.class)
             ))
-            .all()
-            .take(count);
+            .all();
         final Flux<ElementSummaryView> notesAndHistory = allNotes.flatMap(n -> optionalEmptyDeferred(noteQuizzHistoryRepository.findLastByNoteId(n.noteid()))
                 .map(histo -> new NoteAndHistory(n, histo.orElse(null))))
                 // Sort by last asked date

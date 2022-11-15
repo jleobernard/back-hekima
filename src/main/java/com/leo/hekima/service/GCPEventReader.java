@@ -16,10 +16,10 @@ public class GCPEventReader {
 
     public GCPEventReader(@Value("${subs.reader.subscription}") final String subscription, SubsService subsService) {
         Subscriber.newBuilder(subscription, (message, consumer) -> {
-            consumer.ack();
             logger.info("Launching reload of subs db");
             subsService.reloadDb();
             logger.info("Subs db reloaded");
+            consumer.ack();
         })
         .build()
         .startAsync();
