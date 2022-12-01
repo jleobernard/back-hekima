@@ -10,10 +10,13 @@ import com.leo.hekima.repository.*;
 import com.leo.hekima.to.*;
 import com.leo.hekima.to.message.NoteMessageType;
 import com.leo.hekima.utils.*;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import io.r2dbc.postgresql.codec.Json;
 import org.apache.commons.collections4.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.FileSystemResource;
@@ -39,8 +42,10 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -58,7 +63,7 @@ import static reactor.core.publisher.Mono.defer;
 import static reactor.core.publisher.Mono.just;
 
 @Component
-public class NoteService {
+public class NoteService implements InitializingBean {
     private static final Logger logger = LoggerFactory.getLogger(NoteService.class);
     private static final ParameterizedTypeReference<List<IndexedNote>> TYPE_INDEXED_NOTES =
         new ParameterizedTypeReference<>() {};
@@ -79,6 +84,10 @@ public class NoteService {
 
     private final EventPublisher eventPublisher;
 
+    private final MeterRegistry registry;
+
+    private Timer searchByEmbeddingTimer;
+
     public NoteService(NoteRepository noteRepository,
                        NoteTagRepository noteTagRepository, TagRepository tagRepository,
                        SourceRepository sourceRepository,
@@ -88,7 +97,7 @@ public class NoteService {
                        final WordAnalyzer wordAnalyzer,
                        WordRepository wordRepository, NoteWordRepository noteWordRepository,
                        R2dbcEntityTemplate r2dbcEntityTemplate,
-                       final EventPublisher eventPublisher) {
+                       final EventPublisher eventPublisher, MeterRegistry registry) {
         this.noteRepository = noteRepository;
         this.noteTagRepository = noteTagRepository;
         this.tagRepository = tagRepository;
@@ -105,6 +114,7 @@ public class NoteService {
             .baseUrl(nlpsearchUrl)
             .build();
         this.eventPublisher = eventPublisher;
+        this.registry = registry;
 
         if(!this.dataDir.exists()) {
             logger.info("Creating data directory {}", dataDirPath);
@@ -199,6 +209,7 @@ public class NoteService {
     }
 
     private Mono<String> createSearchByNLPQuery(ServerRequest request) {
+        final long start = System.currentTimeMillis();
         final String q = request.queryParam("q")
             .map(String::trim).orElse("");
         var pageAndSort = getPageAndSort(request);
@@ -228,7 +239,8 @@ public class NoteService {
                     logger.error("Error while calling nlp search service");
                     throw new UnrecoverableServiceException("nlp.search.call.error");
                 }
-            });
+            })
+            .doFinally(signal -> searchByEmbeddingTimer.record(Duration.ofMillis(System.currentTimeMillis() - start)));
 
     }
 
@@ -476,7 +488,7 @@ public class NoteService {
                     .collect(Collectors.toList())));
                     for (NoteSub sub : note.getSubs().subs()) {
                         logger.debug("Asking to clip {} from {} to {}", sub.name(), sub.from(), sub.to());
-                        var l = webClient.post()
+                        webClient.post()
                         .uri(b -> b.path("/api/clip")
                                 .queryParam("name", sub.name())
                                 .queryParam("from", sub.from())
@@ -671,4 +683,14 @@ public class NoteService {
         ).orElseGet(() -> WebUtils.ok().bodyValue(new ArrayList<String>(0)));
     }
 
+    @Override
+    public void afterPropertiesSet() {
+        searchByEmbeddingTimer = Timer.builder("notes.searchbyembedding")
+            .tag("custom", "true")
+            .description("time it takes to search by embedding")
+            .minimumExpectedValue(Duration.of(1L, ChronoUnit.MILLIS))
+            .maximumExpectedValue(Duration.of(1L, ChronoUnit.MINUTES))
+            .publishPercentileHistogram(true)
+            .register(registry);
+    }
 }

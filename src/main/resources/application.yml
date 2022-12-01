@@ -41,3 +41,9 @@ notes:
   publisher:
     strategy: gcp
     topicid: projects/laflemme/topics/notes
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
