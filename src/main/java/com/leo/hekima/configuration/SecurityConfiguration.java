@@ -6,6 +6,7 @@ import com.leo.hekima.web.JwtTokenAuthenticationFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.authentication.UserDetailsRepositoryReactiveAuthenticationManager;
@@ -20,10 +21,11 @@ import reactor.core.publisher.Mono;
 
 import java.security.SecureRandom;
 
+@Configuration
 @EnableWebFluxSecurity
 public class SecurityConfiguration {
 
-    private Logger logger = LoggerFactory.getLogger(SecurityConfiguration.class);
+    private static final Logger logger = LoggerFactory.getLogger(SecurityConfiguration.class);
 
     @Bean
     public PasswordEncoder passwordEncoder() {

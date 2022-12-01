@@ -1,10 +1,10 @@
-FROM maven:3.8.6-eclipse-temurin-17-alpine AS build
+FROM maven:3.8.6-eclipse-temurin-19-alpine AS build
 WORKDIR /code
 COPY src /code/src
 COPY pom.xml /code/pom.xml
 RUN mvn clean package -DskipTests -f /code/pom.xml
 
-FROM ibm-semeru-runtimes:open-17.0.4.1_1-jre
+FROM eclipse-temurin:19.0.1_10-jre-alpine
 WORKDIR /code
 VOLUME /tmp
 VOLUME /logs
