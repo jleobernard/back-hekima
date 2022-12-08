@@ -7,12 +7,9 @@ import com.leo.hekima.repository.NoteRepository;
 import com.leo.hekima.to.AckResponse;
 import com.leo.hekima.to.ElementSummaryView;
 import com.leo.hekima.to.QuizzAnswerRequest;
-import com.leo.hekima.utils.WebUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.server.ServerRequest;
-import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -22,11 +19,8 @@ import java.util.List;
 import java.util.Set;
 
 import static com.leo.hekima.utils.ReactiveUtils.optionalEmptyDeferred;
-import static com.leo.hekima.utils.RequestUtils.getCount;
-import static com.leo.hekima.utils.RequestUtils.getStringSet;
 import static org.apache.commons.collections4.CollectionUtils.isEmpty;
 import static org.apache.commons.collections4.CollectionUtils.isNotEmpty;
-import static org.springframework.web.reactive.function.BodyExtractors.toMono;
 
 @Service
 public class QuizzService {
@@ -43,17 +37,14 @@ public class QuizzService {
 
     public record NoteAndHistory(NoteSummary note, NoteQuizzHistoryModel history){}
 
-    public Mono<ServerResponse> generate(ServerRequest serverRequest) {
+    public Flux<ElementSummaryView> generate(Set<String> tags, Set<String> notTags, Set<String> sources, Integer count,
+                                          Integer offset) {
         final String baseRequest = """
         SELECT DISTINCT ON (n.id) n.id as noteid, n.uri as noteuri, n.created_at as createdat, n.valeur as valeur FROM note n
         LEFT JOIN note_tag nt ON n.id = nt.note_id
         LEFT JOIN tag t ON nt.tag_id = t.id
         LEFT JOIN note_source s ON n.source_id = s.id
         """;
-        final Set<String> tags = getStringSet(serverRequest, "tags");
-        final Set<String> notTags = getStringSet(serverRequest, "notTags");
-        final Set<String> sources = getStringSet(serverRequest, "sources");
-        final int count = getCount(serverRequest);
         final List<String> conditions = new ArrayList<>(3);
         if(isNotEmpty(tags)) {
             conditions.add(" t.uri IN ('" + String.join("','", tags) + "')");
@@ -75,7 +66,7 @@ public class QuizzService {
                     row.get("valeur", String.class)
             ))
             .all();
-        final Flux<ElementSummaryView> notesAndHistory = allNotes.flatMap(n -> optionalEmptyDeferred(noteQuizzHistoryRepository.findLastByNoteId(n.noteid()))
+        return allNotes.flatMap(n -> optionalEmptyDeferred(noteQuizzHistoryRepository.findLastByNoteId(n.noteid()))
                 .map(histo -> new NoteAndHistory(n, histo.orElse(null))))
                 // Sort by last asked date
                 // If one of the note was never asked then it takes precedence
@@ -95,13 +86,11 @@ public class QuizzService {
                 })
                 .take(count)
                 .map(n -> new ElementSummaryView(n.note.noteuri(), StringUtils.substring(n.note.valeur(), 0, 20)));
-        return WebUtils.ok().body(notesAndHistory, ElementSummaryView.class);
     }
 
-    public Mono<ServerResponse> answer(ServerRequest serverRequest) {
-        return serverRequest.body(toMono(QuizzAnswerRequest.class))
-            .flatMap(request ->  noteRepository.findByUri(request.noteUri())
-                .flatMap(note -> noteQuizzHistoryRepository.save(new NoteQuizzHistoryModel(note.getId(), request.score()))))
-            .flatMap(n -> WebUtils.ok().bodyValue(new AckResponse(true, "ok")));
+    public Mono<AckResponse> answer(QuizzAnswerRequest request) {
+        return noteRepository.findByUri(request.noteUri())
+            .flatMap(note -> noteQuizzHistoryRepository.save(new NoteQuizzHistoryModel(note.getId(), request.score())))
+            .map(n -> new AckResponse(true, "ok"));
     }
 }

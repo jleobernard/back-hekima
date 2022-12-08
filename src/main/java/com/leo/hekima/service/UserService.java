@@ -2,7 +2,6 @@ package com.leo.hekima.service;
 
 import com.leo.hekima.repository.UserRepository;
 import com.leo.hekima.to.AckResponse;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
@@ -12,11 +11,7 @@ import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.reactive.function.server.ServerRequest;
-import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Mono;
-
-import static com.leo.hekima.utils.WebUtils.ok;
 
 @Service
 public class UserService implements ReactiveUserDetailsService {
@@ -46,9 +41,8 @@ public class UserService implements ReactiveUserDetailsService {
             .filter(auth -> ! (auth instanceof AnonymousAuthenticationToken));
     }
 
-    public Mono<ServerResponse> me(ServerRequest request) {
+    public Mono<AckResponse> me() {
         return getAuthentication()
-            .flatMap(auth -> ok().bodyValue(AckResponse.OK))
-            .switchIfEmpty(ServerResponse.status(HttpStatus.UNAUTHORIZED).build());
+            .map(e -> AckResponse.OK);
     }
 }

@@ -26,26 +26,9 @@ public class NoteRouter {
         RouterFunction<ServerResponse> f = routeSubs(subsService);
         f = routeNotes(noteService, f);
         f = routeSources(sourceService, f);
-        f = routeQuizz(quizzService, f);
-        f = routeServices(versionService, f);
-        return f.andRoute(
-                GET("/api/user")
-                                .and(accept(MediaType.APPLICATION_JSON)),
-                        userService::me)
-                .andRoute(POST("/api/login")
-                    .and(contentType(MediaType.APPLICATION_JSON))
-                    .and(accept(MediaType.APPLICATION_JSON)),
-                        authenticationService::authenticate)
-                .andRoute(GET("/api/authentication:status")
-                                .and(accept(MediaType.APPLICATION_JSON)),
-                        userService::me)
-                .andRoute(GET("/api/tags")
+        return f.andRoute(GET("/api/tags")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         tagService::search)
-                .andRoute(POST("/api/token:refresh")
-                                .and(accept(MediaType.APPLICATION_JSON))
-                                .and(contentType(MediaType.APPLICATION_JSON)),
-                        authenticationService::refresh)
                 .andRoute(GET("/api/tags/{uri}")
                                 .and(accept(MediaType.APPLICATION_JSON)),
                         tagService::findByUri)
@@ -56,10 +39,6 @@ public class NoteRouter {
                 .andRoute(DELETE("/api/tags/{uri}")
                         .and(accept(MediaType.APPLICATION_JSON)),
                 tagService::delete);
-    }
-
-    private RouterFunction<ServerResponse> routeServices(VersionService versionService, RouterFunction<ServerResponse> f) {
-        return f.andRoute(GET("/api/version").and(accept(MediaType.APPLICATION_JSON)), versionService::getVersion);
     }
 
     private RouterFunction<ServerResponse> routeSubs(SubsService subsService) {
@@ -88,11 +67,6 @@ public class NoteRouter {
             .andRoute(DELETE("/api/sources/{uri}")
                             .and(accept(MediaType.APPLICATION_JSON)),
                     sourceService::delete);
-    }
-    private RouterFunction<ServerResponse> routeQuizz(QuizzService quizzService, RouterFunction<ServerResponse> f) {
-        return f
-            .andRoute(GET("/api/quizz:generate") .and(accept(MediaType.APPLICATION_JSON)), quizzService::generate)
-            .andRoute(POST("/api/quizz:answer") .and(accept(MediaType.APPLICATION_JSON)), quizzService::answer);
     }
     private RouterFunction<ServerResponse> routeNotes(NoteService noteService, RouterFunction<ServerResponse> f) {
         return f.andRoute(GET("/api/notes")
